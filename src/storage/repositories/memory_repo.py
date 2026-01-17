@@ -4,6 +4,7 @@ Memory Repository
 Data access layer for Memory entities with vector search support.
 """
 
+import json
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -61,12 +62,12 @@ class MemoryRepository:
             memory.content,
             memory.memory_type.value,
             memory.embedding,
-            memory.entities,
+            json.dumps(memory.entities),
             memory.importance,
             memory.confidence,
             memory.source.value,
             memory.source_id,
-            memory.metadata,
+            json.dumps(memory.metadata) if memory.metadata else None,
         )
         
         logger.info("Memory created", memory_id=row["id"], user_id=memory.user_id)
@@ -330,13 +331,22 @@ class MemoryRepository:
     
     def _row_to_memory(self, row: Any) -> Memory:
         """Convert database row to Memory model."""
+        # Parse JSONB fields if they're strings
+        entities = row["entities"] or []
+        if isinstance(entities, str):
+            entities = json.loads(entities)
+        
+        metadata = row["metadata"] or {}
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        
         return Memory(
             id=row["id"],
             user_id=row["user_id"],
             content=row["content"],
             memory_type=MemoryType(row["memory_type"]),
             embedding=row["embedding"],
-            entities=row["entities"] or [],
+            entities=entities,
             importance=row["importance"],
             confidence=row["confidence"],
             status=MemoryStatus(row["status"]),
@@ -348,7 +358,7 @@ class MemoryRepository:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             deleted_at=row["deleted_at"],
-            metadata=row["metadata"] or {},
+            metadata=metadata,
         )
     
     def _row_to_memory_with_similarity(self, row: Any) -> MemoryWithSimilarity:

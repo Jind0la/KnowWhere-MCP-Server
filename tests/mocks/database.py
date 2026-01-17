@@ -480,8 +480,26 @@ class MockDatabase:
         
         where_part = query_lower.split("where")[1].split("order")[0].split("limit")[0]
         
+        # Handle OR conditions like (from_node_id = $2 OR to_node_id = $2)
+        or_match = re.search(r'\((\w+)\s*=\s*\$(\d+)\s+or\s+(\w+)\s*=\s*\$(\d+)\)', where_part)
+        if or_match:
+            col1, param1, col2, param2 = or_match.groups()
+            param_idx1 = int(param1) - 1
+            param_idx2 = int(param2) - 1
+            
+            if param_idx1 < len(args) and param_idx2 < len(args):
+                val1 = args[param_idx1]
+                val2 = args[param_idx2]
+                or_matches = (row.get(col1) == val1) or (row.get(col2) == val2)
+                if not or_matches:
+                    return False
+            
+            # Remove the OR part from where_part for remaining AND conditions
+            where_part = re.sub(r'\s*and\s*\([^)]+\)', '', where_part)
+            where_part = re.sub(r'\([^)]+\)\s*and\s*', '', where_part)
+        
         # Find all parameter references ($1, $2, etc.) and their associated column names
-        # Pattern: column_name = $N or column_name=$N
+        # Pattern: column_name = $N or column_name=$N (but not inside parentheses)
         param_matches = re.findall(r'(\w+)\s*=\s*\$(\d+)', where_part)
         
         for column_name, param_num in param_matches:
