@@ -1,0 +1,360 @@
+"""
+Memory Repository
+
+Data access layer for Memory entities with vector search support.
+"""
+
+from datetime import datetime, timedelta
+from typing import Any
+from uuid import UUID
+
+import structlog
+
+from src.models.memory import (
+    Memory,
+    MemoryCreate,
+    MemoryStatus,
+    MemoryType,
+    MemoryUpdate,
+    MemoryWithSimilarity,
+)
+from src.storage.database import Database
+
+logger = structlog.get_logger(__name__)
+
+
+class MemoryRepository:
+    """
+    Repository for Memory CRUD operations.
+    
+    Provides:
+    - Create, read, update, delete operations
+    - Vector similarity search
+    - Filtering by type, entity, date range
+    - Access tracking
+    """
+    
+    def __init__(self, db: Database):
+        self.db = db
+    
+    async def create(self, memory: MemoryCreate) -> Memory:
+        """
+        Create a new memory.
+        
+        Args:
+            memory: Memory creation data
+            
+        Returns:
+            Created Memory with ID
+        """
+        query = """
+            INSERT INTO memories (
+                user_id, content, memory_type, embedding, entities,
+                importance, confidence, source, source_id, metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING *
+        """
+        
+        row = await self.db.fetchrow(
+            query,
+            memory.user_id,
+            memory.content,
+            memory.memory_type.value,
+            memory.embedding,
+            memory.entities,
+            memory.importance,
+            memory.confidence,
+            memory.source.value,
+            memory.source_id,
+            memory.metadata,
+        )
+        
+        logger.info("Memory created", memory_id=row["id"], user_id=memory.user_id)
+        return self._row_to_memory(row)
+    
+    async def get_by_id(
+        self,
+        memory_id: UUID,
+        user_id: UUID,
+        update_access: bool = False,
+    ) -> Memory | None:
+        """
+        Get a memory by ID.
+        
+        Args:
+            memory_id: Memory UUID
+            user_id: Owner user ID (for security)
+            update_access: Whether to increment access count
+            
+        Returns:
+            Memory or None if not found
+        """
+        query = """
+            SELECT * FROM memories
+            WHERE id = $1 AND user_id = $2 AND status = 'active'
+        """
+        
+        row = await self.db.fetchrow(query, memory_id, user_id)
+        
+        if row is None:
+            return None
+        
+        if update_access:
+            await self._update_access(memory_id)
+        
+        return self._row_to_memory(row)
+    
+    async def search_similar(
+        self,
+        embedding: list[float],
+        user_id: UUID,
+        limit: int = 10,
+        memory_type: MemoryType | None = None,
+        min_importance: int | None = None,
+        entity: str | None = None,
+        date_range: str | None = None,
+    ) -> list[MemoryWithSimilarity]:
+        """
+        Search for similar memories using vector similarity.
+        
+        Args:
+            embedding: Query embedding vector
+            user_id: User ID for isolation
+            limit: Maximum results
+            memory_type: Filter by type
+            min_importance: Minimum importance filter
+            entity: Filter by entity
+            date_range: Time filter (last_7_days, last_30_days, etc.)
+            
+        Returns:
+            List of memories with similarity scores
+        """
+        # Build dynamic query with filters
+        conditions = ["user_id = $2", "status = 'active'"]
+        params: list[Any] = [embedding, user_id]
+        param_idx = 3
+        
+        if memory_type is not None:
+            conditions.append(f"memory_type = ${param_idx}")
+            params.append(memory_type.value)
+            param_idx += 1
+        
+        if min_importance is not None:
+            conditions.append(f"importance >= ${param_idx}")
+            params.append(min_importance)
+            param_idx += 1
+        
+        if entity is not None:
+            conditions.append(f"entities @> ${param_idx}::jsonb")
+            params.append(f'["{entity}"]')
+            param_idx += 1
+        
+        if date_range is not None:
+            date_filter = self._get_date_filter(date_range)
+            if date_filter:
+                conditions.append(f"created_at >= ${param_idx}")
+                params.append(date_filter)
+                param_idx += 1
+        
+        params.append(limit)
+        
+        query = f"""
+            SELECT *,
+                   1 - (embedding <=> $1::vector) AS similarity
+            FROM memories
+            WHERE {' AND '.join(conditions)}
+            ORDER BY embedding <=> $1::vector
+            LIMIT ${param_idx}
+        """
+        
+        rows = await self.db.fetch(query, *params)
+        
+        return [self._row_to_memory_with_similarity(row) for row in rows]
+    
+    async def list_by_user(
+        self,
+        user_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+        memory_type: MemoryType | None = None,
+        status: MemoryStatus = MemoryStatus.ACTIVE,
+    ) -> list[Memory]:
+        """List memories for a user."""
+        conditions = ["user_id = $1", "status = $2"]
+        params: list[Any] = [user_id, status.value]
+        
+        if memory_type is not None:
+            conditions.append("memory_type = $3")
+            params.append(memory_type.value)
+        
+        query = f"""
+            SELECT * FROM memories
+            WHERE {' AND '.join(conditions)}
+            ORDER BY created_at DESC
+            LIMIT {limit} OFFSET {offset}
+        """
+        
+        rows = await self.db.fetch(query, *params)
+        return [self._row_to_memory(row) for row in rows]
+    
+    async def get_preferences(self, user_id: UUID, limit: int = 50) -> list[Memory]:
+        """Get user's preference memories."""
+        query = """
+            SELECT * FROM memories
+            WHERE user_id = $1 
+                AND status = 'active' 
+                AND memory_type = 'preference'
+            ORDER BY importance DESC, created_at DESC
+            LIMIT $2
+        """
+        
+        rows = await self.db.fetch(query, user_id, limit)
+        return [self._row_to_memory(row) for row in rows]
+    
+    async def update(
+        self,
+        memory_id: UUID,
+        user_id: UUID,
+        update_data: MemoryUpdate,
+    ) -> Memory | None:
+        """Update a memory."""
+        # Build update query dynamically
+        updates = []
+        params: list[Any] = []
+        param_idx = 1
+        
+        update_dict = update_data.model_dump(exclude_unset=True)
+        
+        for field, value in update_dict.items():
+            if value is not None:
+                if field == "memory_type":
+                    value = value.value
+                elif field == "status":
+                    value = value.value
+                updates.append(f"{field} = ${param_idx}")
+                params.append(value)
+                param_idx += 1
+        
+        if not updates:
+            return await self.get_by_id(memory_id, user_id)
+        
+        params.extend([memory_id, user_id])
+        
+        query = f"""
+            UPDATE memories
+            SET {', '.join(updates)}
+            WHERE id = ${param_idx} AND user_id = ${param_idx + 1}
+            RETURNING *
+        """
+        
+        row = await self.db.fetchrow(query, *params)
+        return self._row_to_memory(row) if row else None
+    
+    async def soft_delete(self, memory_id: UUID, user_id: UUID) -> bool:
+        """
+        Soft delete a memory (GDPR-compliant).
+        
+        Sets status to 'deleted' and records deletion timestamp.
+        """
+        query = """
+            UPDATE memories
+            SET status = 'deleted', deleted_at = NOW()
+            WHERE id = $1 AND user_id = $2 AND status = 'active'
+            RETURNING id
+        """
+        
+        result = await self.db.fetchval(query, memory_id, user_id)
+        
+        if result:
+            logger.info("Memory soft-deleted", memory_id=memory_id, user_id=user_id)
+            return True
+        return False
+    
+    async def hard_delete(self, memory_id: UUID, user_id: UUID) -> bool:
+        """Permanently delete a memory."""
+        query = """
+            DELETE FROM memories
+            WHERE id = $1 AND user_id = $2
+            RETURNING id
+        """
+        
+        result = await self.db.fetchval(query, memory_id, user_id)
+        
+        if result:
+            logger.info("Memory hard-deleted", memory_id=memory_id, user_id=user_id)
+            return True
+        return False
+    
+    async def count_by_user(
+        self,
+        user_id: UUID,
+        status: MemoryStatus = MemoryStatus.ACTIVE,
+    ) -> int:
+        """Count memories for a user."""
+        query = """
+            SELECT COUNT(*) FROM memories
+            WHERE user_id = $1 AND status = $2
+        """
+        return await self.db.fetchval(query, user_id, status.value) or 0
+    
+    async def get_entities_for_user(self, user_id: UUID, limit: int = 100) -> list[str]:
+        """Get all unique entities for a user."""
+        query = """
+            SELECT DISTINCT jsonb_array_elements_text(entities) as entity
+            FROM memories
+            WHERE user_id = $1 AND status = 'active'
+            LIMIT $2
+        """
+        rows = await self.db.fetch(query, user_id, limit)
+        return [row["entity"] for row in rows]
+    
+    async def _update_access(self, memory_id: UUID) -> None:
+        """Update access count and timestamp."""
+        query = """
+            UPDATE memories
+            SET access_count = access_count + 1, last_accessed = NOW()
+            WHERE id = $1
+        """
+        await self.db.execute(query, memory_id)
+    
+    def _get_date_filter(self, date_range: str) -> datetime | None:
+        """Convert date range string to datetime."""
+        now = datetime.utcnow()
+        ranges = {
+            "last_7_days": now - timedelta(days=7),
+            "last_30_days": now - timedelta(days=30),
+            "last_year": now - timedelta(days=365),
+            "all_time": None,
+        }
+        return ranges.get(date_range)
+    
+    def _row_to_memory(self, row: Any) -> Memory:
+        """Convert database row to Memory model."""
+        return Memory(
+            id=row["id"],
+            user_id=row["user_id"],
+            content=row["content"],
+            memory_type=MemoryType(row["memory_type"]),
+            embedding=row["embedding"],
+            entities=row["entities"] or [],
+            importance=row["importance"],
+            confidence=row["confidence"],
+            status=MemoryStatus(row["status"]),
+            superseded_by=row["superseded_by"],
+            source=row["source"],
+            source_id=row["source_id"],
+            access_count=row["access_count"],
+            last_accessed=row["last_accessed"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            deleted_at=row["deleted_at"],
+            metadata=row["metadata"] or {},
+        )
+    
+    def _row_to_memory_with_similarity(self, row: Any) -> MemoryWithSimilarity:
+        """Convert database row to MemoryWithSimilarity model."""
+        memory = self._row_to_memory(row)
+        return MemoryWithSimilarity(
+            **memory.model_dump(),
+            similarity=float(row["similarity"]),
+        )

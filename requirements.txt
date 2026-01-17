@@ -1,0 +1,50 @@
+# Knowwhere Memory MCP Server - Dependencies
+# Python 3.11+
+
+# MCP & Web Framework
+fastmcp>=0.1.0
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Data Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Database
+asyncpg>=0.29.0
+pgvector>=0.2.4
+
+# Cache
+redis>=5.0.0
+
+# AI/LLM Services
+openai>=1.10.0
+anthropic>=0.18.0
+
+# Utilities
+numpy>=1.26.0
+httpx>=0.26.0
+python-dotenv>=1.0.0
+structlog>=24.1.0
+tenacity>=8.2.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Object Storage
+aioboto3>=12.3.0
+botocore>=1.34.0
+
+# Document Processing
+pypdf>=4.0.0
+pdfplumber>=0.10.0
+pytesseract>=0.3.10
+Pillow>=10.2.0
+
+# Development (optional)
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+ruff>=0.1.0
+mypy>=1.8.0
