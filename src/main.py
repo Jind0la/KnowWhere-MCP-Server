@@ -462,16 +462,30 @@ async def health_check() -> dict[str, Any]:
 
 def main():
     """Main entry point for CLI."""
+    import os
+    
+    # Determine transport mode: use SSE for Docker/HTTP, stdio for CLI
+    transport = os.getenv("MCP_TRANSPORT", "stdio")
+    
     logger.info(
         "Knowwhere Memory MCP Server starting",
         host=settings.host,
         port=settings.port,
         debug=settings.debug,
         auth_required=REQUIRE_AUTH,
+        transport=transport,
     )
     
-    # Run the MCP server
-    mcp.run()
+    # Run the MCP server with appropriate transport
+    if transport == "sse":
+        # SSE transport for HTTP-based communication (Docker, web clients)
+        # Use 0.0.0.0 to allow external connections in Docker
+        host = os.getenv("HOST", "0.0.0.0")
+        port = int(os.getenv("PORT", "8000"))
+        mcp.run(transport="sse", host=host, port=port)
+    else:
+        # Default stdio transport for CLI/direct integration
+        mcp.run()
 
 
 async def run_server():
