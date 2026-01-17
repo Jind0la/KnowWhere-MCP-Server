@@ -54,11 +54,7 @@ logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 # Create FastMCP app
-mcp = FastMCP(
-    "Knowwhere Memory Server",
-    version="1.0.0",
-    description="Persistent, intelligent memory layer for AI agents",
-)
+mcp = FastMCP("Knowwhere Memory Server")
 
 
 # =============================================================================

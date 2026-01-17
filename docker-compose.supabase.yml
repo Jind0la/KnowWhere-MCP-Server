@@ -1,0 +1,28 @@
+# Docker Compose override for Supabase (cloud database)
+# Usage: docker compose -f docker-compose.yml -f docker-compose.supabase.yml up
+
+services:
+  app:
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      db:
+        condition: service_started
+        required: false
+      redis:
+        condition: service_healthy
+
+  # Disable local PostgreSQL when using Supabase
+  db:
+    deploy:
+      replicas: 0
+
+  pgadmin:
+    deploy:
+      replicas: 0
