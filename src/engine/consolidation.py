@@ -153,44 +153,78 @@ class ConsolidationEngine:
             # Step 6: Build final claim list (merged duplicates, resolved conflicts)
             final_claims = self._build_final_claims(claims, duplicates, resolutions)
             
-            # Step 7: Extract entities for each claim
+            # Step 7: Extract entities for each claim (parallel)
             entity_extractor = await self._get_entity_extractor()
-            for claim in final_claims:
-                if not claim.entities:
-                    claim.entities = await entity_extractor.extract(claim.claim)
-            
-            # Step 8: Create memories
+
+            # Collect claims that need entity extraction
+            claims_needing_entities = [c for c in final_claims if not c.entities]
+            if claims_needing_entities:
+                # Extract entities in parallel
+                claim_texts = [c.claim for c in claims_needing_entities]
+                entity_results = await asyncio.gather(*[
+                    entity_extractor.extract(text) for text in claim_texts
+                ])
+
+                # Assign results back
+                for claim, entities in zip(claims_needing_entities, entity_results):
+                    claim.entities = entities
+
+            # Step 8: Create memories (parallel batch processing)
             memory_processor = MemoryProcessor()
             created_memories: list[Memory] = []
-            
-            for i, claim in enumerate(final_claims):
+
+            # Prepare memory data for batch processing
+            memory_batch_data = []
+            for claim in final_claims:
                 # Determine memory type
                 memory_type = memory_processor.infer_memory_type(
                     claim.claim,
                     claim.claim_type
                 )
-                
+
                 # Get embedding (reuse if available)
                 embedding = embeddings[claims.index(claim)] if claim in claims else None
-                if embedding is None:
-                    embedding = await embedding_service.embed(claim.claim)
-                
-                # Create memory
-                memory = await memory_processor.process_memory(
-                    user_id=user_id,
-                    content=claim.claim,
-                    memory_type=memory_type,
-                    entities=claim.entities,
-                    confidence=claim.confidence,
-                    source=MemorySource.CONSOLIDATION,
-                    source_id=conversation_id,
-                    metadata={
+
+                memory_batch_data.append({
+                    "content": claim.claim,
+                    "memory_type": memory_type,
+                    "entities": claim.entities,
+                    "confidence": claim.confidence,
+                    "source": MemorySource.CONSOLIDATION,
+                    "source_id": conversation_id,
+                    "metadata": {
                         "consolidation_id": str(consolidation_id),
                         "claim_type": claim.claim_type,
                         "source_in_transcript": claim.source,
                     },
-                )
-                created_memories.append(memory)
+                    "embedding": embedding,  # Will be generated if None
+                })
+
+            # Process memories in batch
+            if memory_batch_data:
+                # Group into smaller batches to avoid overwhelming the system
+                batch_size = 10
+                for i in range(0, len(memory_batch_data), batch_size):
+                    batch = memory_batch_data[i:i + batch_size]
+
+                    # For claims without embeddings, generate them
+                    claims_without_embeddings = [
+                        data for data in batch if data.get("embedding") is None
+                    ]
+
+                    if claims_without_embeddings:
+                        texts = [data["content"] for data in claims_without_embeddings]
+                        batch_embeddings = await embedding_service.embed_batch(texts)
+
+                        # Assign embeddings back
+                        for data, emb in zip(claims_without_embeddings, batch_embeddings):
+                            data["embedding"] = emb
+
+                    # Use batch processing for memories
+                    batch_memories = await memory_processor.process_memories_batch(
+                        user_id, batch
+                    )
+                    created_memories.extend(batch_memories)
             
             # Step 9: Build knowledge graph
             kg = await self._get_knowledge_graph()

@@ -5,10 +5,13 @@ Uses Pydantic Settings for type-safe environment variable handling.
 """
 
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Dict, Literal, Type, TypeVar
+from contextlib import asynccontextmanager
 
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+T = TypeVar('T')
 
 
 class Settings(BaseSettings):
@@ -125,7 +128,7 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """
     Get cached settings instance.
-    
+
     Uses lru_cache to ensure settings are only loaded once.
     """
     return Settings()
@@ -135,3 +138,108 @@ def get_settings() -> Settings:
 def get_settings_override(settings: Settings) -> Settings:
     """Override settings for testing."""
     return settings
+
+
+class DependencyContainer:
+    """
+    Simple dependency injection container for services.
+
+    Provides singleton management and dependency resolution.
+    """
+
+    def __init__(self):
+        self._singletons: Dict[Type, Any] = {}
+        self._factories: Dict[Type, Any] = {}
+        self._async_contexts: Dict[Type, Any] = {}
+
+    def register_singleton(self, interface: Type[T], implementation: T) -> None:
+        """Register a singleton instance."""
+        self._singletons[interface] = implementation
+
+    def register_factory(self, interface: Type[T], factory: Any) -> None:
+        """Register a factory function."""
+        self._factories[interface] = factory
+
+    def register_async_context(self, interface: Type[T], context_manager: Any) -> None:
+        """Register an async context manager."""
+        self._async_contexts[interface] = context_manager
+
+    async def resolve(self, interface: Type[T]) -> T:
+        """Resolve a dependency."""
+        # Check singletons first
+        if interface in self._singletons:
+            return self._singletons[interface]
+
+        # Check factories
+        if interface in self._factories:
+            factory = self._factories[interface]
+            if callable(factory):
+                instance = factory()
+                if hasattr(instance, '__aenter__'):  # Async context manager
+                    return await instance.__aenter__()
+                return instance
+
+        # Check async contexts
+        if interface in self._async_contexts:
+            context_manager = self._async_contexts[interface]
+            return await context_manager.__aenter__()
+
+        raise ValueError(f"No registration found for {interface}")
+
+    async def close(self) -> None:
+        """Close all async context managers."""
+        for interface, instance in self._singletons.items():
+            if hasattr(instance, '__aexit__'):
+                await instance.__aexit__(None, None, None)
+
+        for interface, context in self._async_contexts.items():
+            if hasattr(context, '__aexit__'):
+                await context.__aexit__(None, None, None)
+
+        self._singletons.clear()
+        self._async_contexts.clear()
+
+
+# Global container instance
+_container: DependencyContainer | None = None
+
+
+def get_container() -> DependencyContainer:
+    """Get the global dependency container."""
+    global _container
+    if _container is None:
+        _container = DependencyContainer()
+    return _container
+
+
+async def init_container() -> DependencyContainer:
+    """Initialize the global container with default services."""
+    container = get_container()
+
+    # Import here to avoid circular imports
+    from src.storage.database import Database, get_database
+    from src.storage.cache import CacheService, get_cache
+    from src.services.llm import LLMService, get_llm_service
+    from src.services.embedding import EmbeddingService, get_embedding_service
+    from src.engine.entity_extractor import EntityExtractor, get_entity_extractor
+    from src.engine.knowledge_graph import KnowledgeGraphManager, get_knowledge_graph
+
+    # Register async context managers
+    container.register_async_context(Database, get_database())
+    container.register_async_context(CacheService, get_cache())
+
+    # Register factories for services that need initialization
+    container.register_factory(LLMService, get_llm_service)
+    container.register_factory(EmbeddingService, get_embedding_service)
+    container.register_factory(EntityExtractor, get_entity_extractor)
+    container.register_factory(KnowledgeGraphManager, get_knowledge_graph)
+
+    return container
+
+
+async def close_container() -> None:
+    """Close the global container."""
+    global _container
+    if _container:
+        await _container.close()
+        _container = None

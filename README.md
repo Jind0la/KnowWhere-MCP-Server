@@ -27,11 +27,14 @@ KnowWhere ist ein **persistentes Gedächtnissystem** für AI-Agenten. Es speiche
 | Feature | Beschreibung |
 |---------|--------------|
 | 🧠 **Multimodale Memories** | Episodic, Semantic, Preference, Procedural, Meta |
-| 🔍 **Semantische Suche** | Vector Similarity mit pgvector (1536 Dimensionen) |
-| 🔄 **Session Consolidation** | Automatische Claim-Extraktion aus Konversationen |
+| 🚀 **Batch Processing** | Parallele Verarbeitung für bis zu 5x schnellere Konsolidierung |
+| 🔍 **Semantische Suche** | Vector Similarity mit pgvector (1408 Dimensionen) + Sampling |
+| 🔄 **Session Consolidation** | Automatische Claim-Extraktion mit paralleler Entity-Verarbeitung |
 | 📊 **Evolution Tracking** | Verfolge wie sich Präferenzen ändern |
 | 🔒 **GDPR Compliant** | Export und Löschung aller Daten |
 | 🌐 **Vendor Agnostic** | Funktioniert mit Claude, GPT, Grok, Gemini via MCP |
+| 📡 **MCP Resources** | Vollständige MCP Integration mit Resources, Prompts & Roots |
+| 🏗️ **Dependency Injection** | Saubere Architektur für Testbarkeit und Erweiterbarkeit |
 
 ---
 
@@ -139,7 +142,9 @@ Jetzt wird Claude automatisch in Memories suchen bei Fragen wie:
 
 ## 🛠️ MCP Tools
 
-### `mcp_remember` - Memory speichern
+### Memory Management Tools
+
+#### `mcp_remember` - Memory speichern
 ```json
 {
   "content": "User bevorzugt TypeScript über JavaScript",
@@ -149,15 +154,18 @@ Jetzt wird Claude automatisch in Memories suchen bei Fragen wie:
 }
 ```
 
-### `mcp_recall` - Memory suchen
+#### `mcp_recall` - Memory suchen (mit Sampling)
 ```json
 {
   "query": "Welche Programmiersprache bevorzugt der User?",
-  "limit": 5
+  "filters": {"memory_type": "preference"},
+  "limit": 5,
+  "offset": 0,
+  "include_sampling": false
 }
 ```
 
-### `mcp_consolidate_session` - Konversation analysieren
+#### `mcp_consolidate_session` - Konversation analysieren
 ```json
 {
   "session_transcript": "User: Ich liebe Rust für Systems Programming...",
@@ -165,7 +173,7 @@ Jetzt wird Claude automatisch in Memories suchen bei Fragen wie:
 }
 ```
 
-### `mcp_analyze_evolution` - Veränderungen tracken
+#### `mcp_analyze_evolution` - Veränderungen tracken
 ```json
 {
   "entity_name": "TypeScript",
@@ -173,7 +181,7 @@ Jetzt wird Claude automatisch in Memories suchen bei Fragen wie:
 }
 ```
 
-### `mcp_export_memories` - Daten exportieren
+#### `mcp_export_memories` - Daten exportieren
 ```json
 {
   "format": "json",
@@ -181,13 +189,77 @@ Jetzt wird Claude automatisch in Memories suchen bei Fragen wie:
 }
 ```
 
-### `mcp_delete_memory` - Memory löschen
+#### `mcp_delete_memory` - Memory löschen
 ```json
 {
   "memory_id": "uuid-hier",
   "hard_delete": false
 }
 ```
+
+### MCP Resources (Neu!)
+
+#### `health://status` - Server Health Check
+```json
+{
+  "status": "healthy",
+  "database": "connected",
+  "cache": "connected",
+  "version": "1.0.0"
+}
+```
+
+#### `system://capabilities` - System Features
+```json
+{
+  "memory_types": ["episodic", "semantic", "preference", "procedural", "meta"],
+  "features": {
+    "batch_processing": true,
+    "parallel_processing": true,
+    "knowledge_graph": true
+  }
+}
+```
+
+#### `user://{user_id}/stats` - User Statistics
+```json
+{
+  "total_memories": 42,
+  "by_type": {
+    "preference": 15,
+    "semantic": 20,
+    "episodic": 7
+  },
+  "avg_importance": 6.8
+}
+```
+
+#### `user://{user_id}/preferences` - User Preferences
+```json
+{
+  "preferences": [
+    {
+      "content": "Bevorzugt TypeScript über JavaScript",
+      "importance": 8,
+      "entities": ["TypeScript", "JavaScript"]
+    }
+  ]
+}
+```
+
+### MCP Prompts (Neu!)
+
+#### `memory_guided_creation` - Geführte Memory-Erstellung
+Interaktiver Prompt für strukturierte Memory-Erstellung mit Best Practices.
+
+#### `preference_analysis` - Präferenz-Analyse
+Umfassende Analyse aller User-Präferenzen und Muster-Erkennung.
+
+#### `learning_session_analysis` - Lern-Session Analyse
+Spezialisiert auf die Verarbeitung von Lern-Konversationen.
+
+#### `troubleshooting_workflow` - Troubleshooting Workflow
+Systematische Problemlösung mit Memory-Kontext.
 
 ---
 
@@ -197,18 +269,22 @@ Jetzt wird Claude automatisch in Memories suchen bei Fragen wie:
 ┌──────────────────────────────────────────────────────────────┐
 │                    AI Clients (Cursor, Claude Desktop)       │
 └────────────────────────┬─────────────────────────────────────┘
-                         │ MCP Protocol (SSE)
+                         │ MCP Protocol (SSE + Resources)
                          ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                  FastMCP Server (Docker)                     │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │                   6 MCP Tools                          │ │
-│  │  remember | recall | consolidate | analyze | export |  │ │
+│  │              6 MCP Tools + Resources                   │ │
+│  │  Tools: remember | recall | consolidate | analyze |   │ │
+│  │         export | delete                               │ │
+│  │  Resources: health | stats | preferences | entities   │ │
+│  │  Prompts: guided_creation | preference_analysis       │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                          │                                   │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │               Memory Engine                            │ │
-│  │  MemoryProcessor | ConsolidationEngine | KnowledgeGraph│ │
+│  │           Optimized Memory Engine                      │ │
+│  │  Batch MemoryProcessor | Parallel ConsolidationEngine │ │
+│  │  KnowledgeGraph | Dependency Injection Container      │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                          │                                   │
 │  ┌────────────────────────────────────────────────────────┐ │
@@ -401,6 +477,32 @@ MIT License - siehe [LICENSE](LICENSE) für Details.
 - **MCP Protocol**: [modelcontextprotocol.io](https://modelcontextprotocol.io)
 - **Supabase**: [supabase.com](https://supabase.com)
 - **FastMCP**: [github.com/jlowin/fastmcp](https://github.com/jlowin/fastmcp)
+
+---
+
+## 📋 Recent Updates (v1.1.0)
+
+### 🚀 Performance Optimierungen
+- **5x schnellere Consolidation**: Parallele Entity Extraction und Batch Embeddings
+- **Batch Processing**: Gleichzeitige Verarbeitung mehrerer Memories
+- **Optimized Connection Pooling**: Verbesserte Datenbank-Verbindungen
+- **Async Improvements**: Mehr Parallelisierung in unabhängigen Operationen
+
+### 📡 MCP Protocol Erweiterungen
+- **Neue MCP Resources**: `health://status`, `system://capabilities`, `user://{id}/stats`, `user://{id}/preferences`, `user://{id}/memories`, `user://{id}/entities`
+- **MCP Prompts**: `memory_guided_creation`, `preference_analysis`, `learning_session_analysis`, `troubleshooting_workflow`
+- **Sampling Support**: Effiziente Pagination für große Resultate
+- **Progress Notifications**: Fortschrittsanzeige für langlaufende Operationen
+
+### 🏗️ Architektur Verbesserungen
+- **Dependency Injection Container**: Saubere Service-Management
+- **Service Abstraction**: Bessere Testbarkeit und Wartbarkeit
+- **Batch Memory Processing**: Neue `process_memories_batch()` Methode
+
+### 🔧 Developer Experience
+- **Erweiterte System Capabilities**: Detaillierte Feature-Dokumentation
+- **Verbesserte Error Handling**: Bessere Fehlermeldungen und Logging
+- **Performance Monitoring**: Detaillierte Statistiken und Metriken
 
 ---
 

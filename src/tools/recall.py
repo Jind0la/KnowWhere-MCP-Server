@@ -23,6 +23,8 @@ async def recall(
     query: str,
     filters: dict | None = None,
     limit: int = 10,
+    offset: int = 0,
+    include_sampling: bool = False,
 ) -> RecallOutput:
     """
     Search and retrieve memories using semantic similarity.
@@ -46,10 +48,13 @@ async def recall(
         user_id=str(user_id),
         query=query[:100],
         limit=limit,
+        offset=offset,
+        include_sampling=include_sampling,
     )
-    
-    # Validate limit
+
+    # Validate limit and offset
     limit = max(1, min(50, limit))
+    offset = max(0, offset)
     
     # Parse filters
     parsed_filters = _parse_filters(filters) if filters else None
@@ -62,15 +67,27 @@ async def recall(
     db = await get_database()
     repo = MemoryRepository(db)
     
+    # Get memories with potential sampling
+    base_limit = limit
+    if include_sampling and limit > 10:
+        # For sampling, get more results initially to allow better selection
+        base_limit = min(limit * 2, 100)
+
     memories = await repo.search_similar(
         embedding=query_embedding,
         user_id=user_id,
-        limit=limit,
+        limit=base_limit,
         memory_type=parsed_filters.memory_type if parsed_filters else None,
         min_importance=parsed_filters.importance_min if parsed_filters else None,
         entity=parsed_filters.entity if parsed_filters else None,
         date_range=parsed_filters.date_range.value if parsed_filters and parsed_filters.date_range else None,
     )
+
+    # Apply offset and limit for pagination/sampling
+    if offset > 0:
+        memories = memories[offset:]
+
+    memories = memories[:limit]
     
     # Update access timestamps for returned memories
     for memory in memories:

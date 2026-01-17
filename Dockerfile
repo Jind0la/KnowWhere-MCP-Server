@@ -51,9 +51,10 @@ USER appuser
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+# Health check - Note: FastMCP doesn't have HTTP health endpoints
+# This checks if the process is running (basic health check)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD pgrep -f "python -m src.main" > /dev/null || exit 1
 
 # Run the application
 CMD ["python", "-m", "src.main"]

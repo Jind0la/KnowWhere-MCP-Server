@@ -16,9 +16,7 @@ import structlog
 import uvicorn
 from fastmcp import FastMCP
 
-from src.config import Settings, get_settings
-from src.storage.database import close_database, get_database
-from src.storage.cache import close_cache, get_cache
+from src.config import Settings, get_settings, init_container, close_container
 from src.auth.middleware import AuthContext, get_current_user
 from src.auth.jwt import verify_token
 from src.auth.api_keys import verify_api_key
@@ -61,39 +59,32 @@ settings = get_settings()
 async def lifespan_context(app):
     """Manage server lifecycle - connect/disconnect resources."""
     logger.info("Starting Knowwhere Memory MCP Server...")
-    
-    # Initialize connections
+
+    # Initialize dependency container
     try:
-        db = await get_database()
-        logger.info("Database connected")
-        
-        cache = await get_cache()
-        if cache.is_connected:
-            logger.info("Redis cache connected")
-        else:
-            logger.warning("Redis cache not available - continuing without cache")
-        
+        container = await init_container()
+        logger.info("Dependency container initialized")
+
         # Start audit logger
         audit_logger = await get_audit_logger()
         logger.info("Audit logger started")
-        
+
         # Initialize rate limiter
         rate_limiter = await get_rate_limiter()
         logger.info("Rate limiter initialized")
-        
+
         logger.info("✅ All services initialized successfully!")
-        
+
     except Exception as e:
-        logger.error("Failed to initialize connections", error=str(e))
+        logger.error("Failed to initialize services", error=str(e))
         raise
-    
+
     yield
-    
+
     # Cleanup
     logger.info("Shutting down Knowwhere Memory MCP Server...")
+    await close_container()
     await close_audit_logger()
-    await close_database()
-    await close_cache()
     logger.info("Shutdown complete")
 
 
@@ -274,11 +265,13 @@ async def mcp_recall(
     query: str,
     filters: dict | None = None,
     limit: int = 10,
+    offset: int = 0,
+    include_sampling: bool = False,
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     🔍 ALWAYS USE THIS FIRST when the user asks about their preferences, projects, learnings, or anything personal!
-    
+
     This searches the user's stored memories. Use it when the user asks:
     - "What is my favorite...?" → recall("favorite")
     - "What do I prefer...?" → recall("preference")
@@ -286,14 +279,16 @@ async def mcp_recall(
     - "What did I learn about...?" → recall("learning about X")
     - "What do you know about me?" → recall("user preferences facts")
     - Any question about the user's history, decisions, or personal context
-    
+
     Args:
         query: Search query (natural language) - describe what you're looking for
         filters: Optional filters (memory_type, entity, date_range, importance_min)
         limit: Maximum number of results (1-50)
+        offset: Pagination offset for large result sets
+        include_sampling: Enable sampling for large datasets (returns subset for efficiency)
     """
     user_id = get_user_id_from_context(metadata=_metadata)
-    
+
     return await with_auth_and_audit(
         tool_name="recall",
         user_id=user_id,
@@ -301,6 +296,8 @@ async def mcp_recall(
         query=query,
         filters=filters,
         limit=limit,
+        offset=offset,
+        include_sampling=include_sampling,
     )
 
 
@@ -313,19 +310,20 @@ async def mcp_consolidate_session(
 ) -> dict[str, Any]:
     """
     Process a conversation transcript and extract structured memories.
-    
+
     This analyzes the conversation to find facts, preferences, and learnings,
     then stores them as memories.
-    
+
     Args:
         session_transcript: Full conversation transcript to process
         session_date: When the session occurred (ISO 8601 format)
         conversation_id: Reference ID for the conversation
     """
     from datetime import datetime
-    
+    import asyncio
+
     user_id = get_user_id_from_context(metadata=_metadata)
-    
+
     # Parse session_date if provided
     parsed_date = None
     if session_date:
@@ -333,11 +331,37 @@ async def mcp_consolidate_session(
             parsed_date = datetime.fromisoformat(session_date)
         except ValueError:
             pass
-    
+
+    # Progress-aware wrapper
+    async def consolidate_with_progress(
+        user_id: UUID,
+        session_transcript: str,
+        session_date: datetime | None,
+        conversation_id: str | None,
+    ) -> dict[str, Any]:
+        """Consolidate session with progress reporting."""
+        total_steps = 4  # claim extraction, conflict resolution, memory creation, cleanup
+
+        # Progress notification function
+        async def report_progress(step: int, message: str):
+            logger.info(f"Consolidation progress: {message}", step=step, total=total_steps)
+            # Note: MCP progress notifications would be sent here if supported by client
+
+        await report_progress(1, "Extracting claims from transcript...")
+        result = await consolidate_session(
+            user_id=user_id,
+            session_transcript=session_transcript,
+            session_date=session_date,
+            conversation_id=conversation_id,
+        )
+
+        await report_progress(total_steps, "Consolidation complete")
+        return result
+
     return await with_auth_and_audit(
         tool_name="consolidate_session",
         user_id=user_id,
-        operation_func=consolidate_session,
+        operation_func=consolidate_with_progress,
         session_transcript=session_transcript,
         session_date=parsed_date,
         conversation_id=conversation_id,
@@ -437,7 +461,150 @@ async def mcp_delete_memory(
 
 
 # =============================================================================
-# Health Check Endpoint
+# MCP Prompts
+# =============================================================================
+
+@mcp.prompt()
+async def memory_guided_creation(
+    context: str | None = None,
+    memory_type: str | None = None,
+) -> str:
+    """
+    Guided memory creation prompt.
+
+    Helps users create structured memories by asking the right questions
+    based on context and desired memory type.
+    """
+    base_prompt = """Du bist ein Memory Creation Assistant für KnowWhere.
+Deine Aufgabe ist es, Benutzern zu helfen, strukturierte und nützliche Erinnerungen zu erstellen.
+
+RICHTLINIEN FÜR GUTE MEMORIES:
+1. **Spezifisch**: Nicht "Ich mag Technologie" sondern "Ich bevorzuge TypeScript gegenüber JavaScript weil..."
+2. **Kontextreich**: Erkläre WARUM etwas wichtig ist
+3. **Handlungsorientiert**: Was folgt daraus? Was ändert sich?
+4. **Zeitgebunden**: Wann wurde das entschieden/gelernt?
+
+MEMORY TYPEN:
+- **episodic**: Spezifische Ereignisse ("In Session #42 erwähnte der User...")
+- **semantic**: Fakten ("Python verwendet Einrückung für Code-Blöcke")
+- **preference**: Vorlieben ("Ich bevorzuge async/await gegenüber Promises")
+- **procedural**: Anleitungen ("Um React zu installieren: npm create vite --template react-ts")
+- **meta**: Über das Lernen selbst ("Ich kämpfe mit async/await Konzepten")
+
+SCHRITT-FÜR-SCHRITT ANLEITUNG:
+1. Frage nach dem WAS (was genau soll erinnert werden?)
+2. Frage nach dem WARUM (warum ist das wichtig?)
+3. Frage nach ENTITIES (welche Technologien/Konzepte sind beteiligt?)
+4. Empfehle den richtigen MEMORY_TYPE
+5. Erstelle das Memory mit mcp_remember()"""
+
+    if context:
+        base_prompt += f"\n\nKONTEXT: {context}"
+
+    if memory_type:
+        type_descriptions = {
+            "episodic": "Ein spezifisches Ereignis oder Gespräch",
+            "semantic": "Ein Fakt oder eine Information",
+            "preference": "Eine persönliche Vorliebe oder Entscheidung",
+            "procedural": "Eine Anleitung oder ein Workflow",
+            "meta": "Etwas über das eigene Lernen oder Verstehen",
+        }
+        base_prompt += f"\n\nGEWÜNSCHTER TYP: {memory_type} - {type_descriptions.get(memory_type, 'Unbekannter Typ')}"
+
+    return base_prompt
+
+
+@mcp.prompt()
+async def preference_analysis() -> str:
+    """
+    Comprehensive preference analysis prompt.
+
+    Helps analyze all user preferences and create insights.
+    """
+    return """Du bist ein Preference Analyst für KnowWhere.
+
+Deine Aufgabe: Analysiere alle Benutzer-Präferenzen systematisch.
+
+SCHRITTE:
+1. **Sammle alle Präferenzen**: Verwende mcp_recall("preference") um alle Vorlieben zu bekommen
+2. **Kategorisiere**: Gruppiere nach Themen (Technologie, Workflow, Tools, etc.)
+3. **Finde Muster**: Was sagt das über den Benutzer aus?
+4. **Erkenne Konflikte**: Gibt es widersprüchliche Präferenzen?
+5. **Erstelle Insights**: Was bedeuten diese Muster?
+
+ANALYSE-FRAGEN:
+- Welche Technologien werden bevorzugt und warum?
+- Welche Arbeitsweisen werden favorisiert?
+- Gibt es Entwicklung über Zeit? (mcp_analyze_evolution)
+- Welche Entscheidungsmuster sind erkennbar?
+
+Erstelle eine strukturierte Zusammenfassung der Benutzer-Präferenzen."""
+
+
+@mcp.prompt()
+async def learning_session_analysis() -> str:
+    """
+    Learning session consolidation prompt.
+
+    Helps process and consolidate learning from a session.
+    """
+    return """Du bist ein Learning Session Analyst für KnowWhere.
+
+Deine Aufgabe: Verarbeite eine Lern-Session und extrahiere wertvolles Wissen.
+
+PROZESS:
+1. **Sammle Session-Daten**: Hole relevante Memories aus der letzten Session
+2. **Identifiziere Learnings**: Was wurde neu gelernt oder verstanden?
+3. **Erkenne Herausforderungen**: Wo gab es Schwierigkeiten?
+4. **Dokumentiere Lösungen**: Welche Probleme wurden gelöst?
+5. **Erstelle Memories**: Speichere wichtige Erkenntnisse mit mcp_remember()
+
+WICHTIGE FRAGEN:
+- Welche neuen Konzepte wurden verstanden?
+- Welche Fehlverständnisse wurden korrigiert?
+- Welche Techniken/Tools wurden erfolgreich angewendet?
+- Was würde der Benutzer beim nächsten Mal anders machen?
+
+Verwende mcp_consolidate_session() für die komplette Session-Verarbeitung."""
+
+
+@mcp.prompt()
+async def troubleshooting_workflow() -> str:
+    """
+    Troubleshooting workflow prompt.
+
+    Guides through systematic problem-solving using memory context.
+    """
+    return """Du bist ein Troubleshooting Assistant für KnowWhere.
+
+Deine Aufgabe: Hilf bei der systematischen Problemlösung mit Memory-Kontext.
+
+TROUBLESHOOTING-PROZESS:
+1. **Problem definieren**: Was genau ist das Problem?
+2. **Kontext sammeln**: Suche nach ähnlichen Problemen (mcp_recall)
+3. **Lösungsansätze prüfen**: Welche Lösungen wurden früher verwendet?
+4. **Schritt-für-Schritt vorgehen**: Systematische Problemlösung
+5. **Lösung dokumentieren**: Speichere die Lösung für die Zukunft
+
+FRAGEN STELLEN:
+- Wann trat das Problem zum ersten Mal auf?
+- Welche Schritte wurden bereits versucht?
+- Welche Fehlermeldungen gibt es?
+- In welcher Umgebung tritt es auf?
+
+Verwende vorhandene Memories, um ähnliche Probleme und deren Lösungen zu finden."""
+
+
+# =============================================================================
+# MCP Setup - Roots via Resource Templates
+# =============================================================================
+
+# Note: FastMCP doesn't support @mcp.root decorator
+# Roots are implemented via resource templates and resource hierarchies
+
+
+# =============================================================================
+# MCP Resources
 # =============================================================================
 
 @mcp.resource("health://status")
@@ -448,13 +615,13 @@ async def health_check() -> dict[str, Any]:
         db_healthy = await db.health_check()
     except Exception:
         db_healthy = False
-    
+
     try:
         cache = await get_cache()
         cache_healthy = await cache.health_check()
     except Exception:
         cache_healthy = False
-    
+
     return {
         "status": "healthy" if db_healthy else "degraded",
         "database": "connected" if db_healthy else "disconnected",
@@ -463,6 +630,181 @@ async def health_check() -> dict[str, Any]:
         "auth_required": REQUIRE_AUTH,
         "rate_limit_enabled": settings.rate_limit_enabled,
     }
+
+
+@mcp.resource("user://{user_id}/stats")
+async def user_memory_stats(user_id: str) -> dict[str, Any]:
+    """Get memory statistics for a specific user."""
+    from uuid import UUID
+    from src.storage.repositories.memory_repo import MemoryRepository
+
+    try:
+        parsed_user_id = UUID(user_id)
+    except ValueError:
+        return {"error": "Invalid user_id format"}
+
+    # Check auth context (in production, this would be enforced)
+    auth_user_id = AuthContext.get_user_id()
+    if auth_user_id and auth_user_id != parsed_user_id:
+        return {"error": "Access denied: can only view own stats"}
+
+    try:
+        db = await get_database()
+        repo = MemoryRepository(db)
+
+        stats = await repo.get_memory_stats(parsed_user_id)
+        return stats.model_dump(mode="json")
+
+    except Exception as e:
+        logger.error("Failed to get user stats", user_id=user_id, error=str(e))
+        return {"error": "Failed to retrieve statistics"}
+
+
+@mcp.resource("user://{user_id}/preferences")
+async def user_preferences(user_id: str) -> dict[str, Any]:
+    """Get user preferences summary."""
+    from uuid import UUID
+    from src.storage.repositories.memory_repo import MemoryRepository
+    from src.models.memory import MemoryType
+
+    try:
+        parsed_user_id = UUID(user_id)
+    except ValueError:
+        return {"error": "Invalid user_id format"}
+
+    # Check auth context
+    auth_user_id = AuthContext.get_user_id()
+    if auth_user_id and auth_user_id != parsed_user_id:
+        return {"error": "Access denied: can only view own preferences"}
+
+    try:
+        db = await get_database()
+        repo = MemoryRepository(db)
+
+        preferences = await repo.get_memories_by_type(
+            parsed_user_id, MemoryType.PREFERENCE, limit=20
+        )
+
+        return {
+            "preferences": [
+                {
+                    "content": mem.content,
+                    "importance": mem.importance,
+                    "entities": mem.entities,
+                    "created_at": mem.created_at.isoformat(),
+                }
+                for mem in preferences
+            ]
+        }
+
+    except Exception as e:
+        logger.error("Failed to get user preferences", user_id=user_id, error=str(e))
+        return {"error": "Failed to retrieve preferences"}
+
+
+@mcp.resource("system://capabilities")
+async def system_capabilities() -> dict[str, Any]:
+    """Get system capabilities and configuration."""
+    return {
+        "memory_types": ["episodic", "semantic", "preference", "procedural", "meta"],
+        "max_content_length": 8000,
+        "supported_providers": {
+            "llm": ["anthropic", "openai"],
+            "embedding": ["openai"],
+            "storage": ["s3", "r2", "gcs"],
+        },
+        "features": {
+            "knowledge_graph": settings.feature_knowledge_graph,
+            "document_processing": settings.feature_document_processing,
+            "evolution_tracking": settings.feature_evolution_tracking,
+            "consolidation": True,
+            "audit_logging": True,
+            "rate_limiting": settings.rate_limit_enabled,
+            "batch_processing": True,
+            "parallel_processing": True,
+        },
+        "limits": {
+            "rate_limit_per_minute": settings.rate_limit_requests_per_minute,
+            "max_entities_per_memory": 10,
+            "max_importance": 10,
+            "embedding_dimensions": settings.embedding_dimensions,
+        },
+    }
+
+
+@mcp.resource("user://{user_id}/memories")
+async def user_memories_list(user_id: str, limit: int = 20) -> dict[str, Any]:
+    """Get a list of user's memories with basic info."""
+    from uuid import UUID
+    from src.storage.repositories.memory_repo import MemoryRepository
+
+    try:
+        parsed_user_id = UUID(user_id)
+    except ValueError:
+        return {"error": "Invalid user_id format"}
+
+    # Check auth context
+    auth_user_id = AuthContext.get_user_id()
+    if auth_user_id and auth_user_id != parsed_user_id:
+        return {"error": "Access denied: can only view own memories"}
+
+    try:
+        db = await get_database()
+        repo = MemoryRepository(db)
+
+        memories = await repo.list_by_user(parsed_user_id, limit=limit)
+
+        return {
+            "memories": [
+                {
+                    "id": str(mem.id),
+                    "content": mem.content[:200] + "..." if len(mem.content) > 200 else mem.content,
+                    "memory_type": mem.memory_type.value,
+                    "importance": mem.importance,
+                    "entities": mem.entities,
+                    "created_at": mem.created_at.isoformat(),
+                }
+                for mem in memories
+            ],
+            "total_count": len(memories),
+            "limit": limit,
+        }
+
+    except Exception as e:
+        logger.error("Failed to get user memories", user_id=user_id, error=str(e))
+        return {"error": "Failed to retrieve memories"}
+
+
+@mcp.resource("user://{user_id}/entities")
+async def user_entities(user_id: str) -> dict[str, Any]:
+    """Get all entities known for a user."""
+    from uuid import UUID
+    from src.storage.repositories.memory_repo import MemoryRepository
+
+    try:
+        parsed_user_id = UUID(user_id)
+    except ValueError:
+        return {"error": "Invalid user_id format"}
+
+    # Check auth context
+    auth_user_id = AuthContext.get_user_id()
+    if auth_user_id and auth_user_id != parsed_user_id:
+        return {"error": "Access denied: can only view own entities"}
+
+    try:
+        db = await get_database()
+        repo = MemoryRepository(db)
+
+        entities = await repo.get_entities_for_user(parsed_user_id)
+
+        return {
+            "entities": entities,
+            "count": len(entities),
+        }
+
+    except Exception as e:
+        logger.error("Failed to get user entities", user_id=user_id, error=str(e))
+        return {"error": "Failed to retrieve entities"}
 
 
 # =============================================================================

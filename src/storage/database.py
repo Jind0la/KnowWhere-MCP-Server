@@ -51,6 +51,8 @@ class Database:
                 dsn=self.settings.database_url.get_secret_value(),
                 min_size=self.settings.db_pool_min_size,
                 max_size=self.settings.db_pool_max_size,
+                max_queries=50000,  # Reuse connections more
+                max_inactive_connection_lifetime=300.0,  # 5 minutes
                 command_timeout=60,
                 # Enable pgvector extension support
                 init=self._init_connection,

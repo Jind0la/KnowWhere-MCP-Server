@@ -308,6 +308,75 @@ class MemoryRepository:
         """
         rows = await self.db.fetch(query, user_id, limit)
         return [row["entity"] for row in rows]
+
+    async def get_memory_stats(self, user_id: UUID) -> dict[str, Any]:
+        """Get comprehensive memory statistics for a user."""
+        query = """
+            SELECT
+                COUNT(*) as total_memories,
+                COUNT(CASE WHEN memory_type = 'preference' THEN 1 END) as preference_count,
+                COUNT(CASE WHEN memory_type = 'semantic' THEN 1 END) as semantic_count,
+                COUNT(CASE WHEN memory_type = 'episodic' THEN 1 END) as episodic_count,
+                COUNT(CASE WHEN memory_type = 'procedural' THEN 1 END) as procedural_count,
+                COUNT(CASE WHEN memory_type = 'meta' THEN 1 END) as meta_count,
+                AVG(importance) as avg_importance,
+                MAX(created_at) as last_memory_date,
+                MIN(created_at) as first_memory_date,
+                SUM(access_count) as total_accesses
+            FROM memories
+            WHERE user_id = $1 AND status = 'active'
+        """
+
+        row = await self.db.fetchrow(query, user_id)
+
+        if not row:
+            return {
+                "total_memories": 0,
+                "by_type": {
+                    "preference": 0,
+                    "semantic": 0,
+                    "episodic": 0,
+                    "procedural": 0,
+                    "meta": 0,
+                },
+                "avg_importance": 0.0,
+                "last_memory_date": None,
+                "first_memory_date": None,
+                "total_accesses": 0,
+            }
+
+        return {
+            "total_memories": row["total_memories"],
+            "by_type": {
+                "preference": row["preference_count"],
+                "semantic": row["semantic_count"],
+                "episodic": row["episodic_count"],
+                "procedural": row["procedural_count"],
+                "meta": row["meta_count"],
+            },
+            "avg_importance": float(row["avg_importance"] or 0.0),
+            "last_memory_date": row["last_memory_date"].isoformat() if row["last_memory_date"] else None,
+            "first_memory_date": row["first_memory_date"].isoformat() if row["first_memory_date"] else None,
+            "total_accesses": row["total_accesses"] or 0,
+        }
+
+    async def get_memories_by_type(
+        self,
+        user_id: UUID,
+        memory_type: MemoryType,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Memory]:
+        """Get memories filtered by type."""
+        query = """
+            SELECT * FROM memories
+            WHERE user_id = $1 AND memory_type = $2 AND status = 'active'
+            ORDER BY importance DESC, created_at DESC
+            LIMIT $3 OFFSET $4
+        """
+
+        rows = await self.db.fetch(query, user_id, memory_type.value, limit, offset)
+        return [self._row_to_memory(row) for row in rows]
     
     async def _update_access(self, memory_id: UUID) -> None:
         """Update access count and timestamp."""
