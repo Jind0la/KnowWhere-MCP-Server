@@ -46,22 +46,32 @@ class Claim(BaseModel):
     )
     claim_type: str | None = Field(
         default=None,
-        description="Type: preference, fact, learning, decision, etc."
+        description="Type: preference, fact, learning, decision, workflow, insight, etc."
     )
     entities: list[str] = Field(
         default_factory=list,
-        description="Entities mentioned in this claim"
+        description="Entities mentioned in this claim (max 5)"
+    )
+    importance: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Importance score 1-10 (10 = very personal/important)"
     )
     
     def to_memory_type(self) -> str:
         """Map claim type to memory type."""
         type_mapping = {
             "preference": "preference",
+            "decision": "preference",  # Decisions reflect preferences
+            "workflow": "procedural",
+            "insight": "semantic",
+            "project_fact": "semantic",
+            "tool_usage": "semantic",
             "fact": "semantic",
             "learning": "episodic",
-            "decision": "episodic",
             "how_to": "procedural",
-            "struggle": "meta",
+            "struggle": "episodic",
         }
         return type_mapping.get(self.claim_type or "", "semantic")
 

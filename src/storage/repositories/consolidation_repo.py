@@ -4,6 +4,7 @@ Consolidation Repository
 Data access layer for consolidation history.
 """
 
+import json
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -46,6 +47,12 @@ class ConsolidationRepository:
             RETURNING *
         """
         
+        # Serialize lists/dicts to JSON for database storage
+        patterns_json = json.dumps(history.patterns_detected) if history.patterns_detected else "[]"
+        entities_json = json.dumps(history.key_entities) if history.key_entities else "[]"
+        sentiment_json = json.dumps(history.sentiment_analysis) if history.sentiment_analysis else "{}"
+        metadata_json = json.dumps(history.metadata) if history.metadata else "{}"
+        
         row = await self.db.fetchrow(
             query,
             history.id,
@@ -65,12 +72,12 @@ class ConsolidationRepository:
             history.embedding_cost_usd,
             history.duplicate_similarity_threshold,
             history.conflict_similarity_range,
-            history.patterns_detected,
-            history.key_entities,
-            history.sentiment_analysis,
+            patterns_json,
+            entities_json,
+            sentiment_json,
             history.status.value,
             history.error_message,
-            history.metadata,
+            metadata_json,
         )
         
         logger.info(
@@ -220,6 +227,23 @@ class ConsolidationRepository:
     
     def _row_to_history(self, row: Any) -> ConsolidationHistory:
         """Convert database row to ConsolidationHistory model."""
+        # Parse JSON fields
+        patterns = row["patterns_detected"]
+        if isinstance(patterns, str):
+            patterns = json.loads(patterns) if patterns else []
+        
+        entities = row["key_entities"]
+        if isinstance(entities, str):
+            entities = json.loads(entities) if entities else []
+        
+        sentiment = row["sentiment_analysis"]
+        if isinstance(sentiment, str):
+            sentiment = json.loads(sentiment) if sentiment else {}
+        
+        metadata = row["metadata"]
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata) if metadata else {}
+        
         return ConsolidationHistory(
             id=row["id"],
             user_id=row["user_id"],
@@ -238,11 +262,11 @@ class ConsolidationRepository:
             embedding_cost_usd=row["embedding_cost_usd"],
             duplicate_similarity_threshold=row["duplicate_similarity_threshold"],
             conflict_similarity_range=row["conflict_similarity_range"],
-            patterns_detected=row["patterns_detected"] or [],
-            key_entities=row["key_entities"] or [],
-            sentiment_analysis=row["sentiment_analysis"] or {},
+            patterns_detected=patterns or [],
+            key_entities=entities or [],
+            sentiment_analysis=sentiment or {},
             status=ConsolidationStatus(row["status"]),
             error_message=row["error_message"],
             created_at=row["created_at"],
-            metadata=row["metadata"] or {},
+            metadata=metadata or {},
         )

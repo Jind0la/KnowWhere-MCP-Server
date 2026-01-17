@@ -160,42 +160,59 @@ class LLMService:
         Returns:
             List of extracted claims
         """
-        system = """You are an expert at extracting factual claims, preferences, and learnings from conversations.
-Focus on extracting:
-- User preferences (likes, dislikes, style preferences)
-- Factual statements about the user's work, projects, or knowledge
-- Learnings and discoveries
-- Decisions the user made
-- Problems or struggles mentioned
+        system = """Du bist ein Experte für das Extrahieren von wichtigen Erkenntnissen aus Gesprächen.
+
+WICHTIGE REGELN:
+1. SPRACHE BEIBEHALTEN: Antworte in der GLEICHEN SPRACHE wie das Transcript (Deutsch → Deutsch, English → English)
+2. QUALITÄT > QUANTITÄT: Extrahiere nur WIRKLICH wichtige Aussagen
+3. KEINE TRIVIALEN SCHRITTE: Ignoriere offensichtliche technische Schritte wie "User installiert X" oder "User führt Befehl aus"
+4. PERSÖNLICHER FOKUS: Priorisiere persönliche Präferenzen, Entscheidungen und Erkenntnisse
+
+PRIORISIERUNG (von hoch nach niedrig):
+🔴 HOCH: Persönliche Präferenzen, Lieblingsprojekte, Arbeitsweise
+🟠 MITTEL: Entscheidungen mit Begründung, Erkenntnisse, Workflows
+🟡 NIEDRIG: Reine Fakten ohne persönlichen Bezug
+⚪ IGNORIEREN: Triviale Befehle, offensichtliche Schritte, temporäre Zustände
 
 Return ONLY valid JSON, no other text."""
 
-        prompt = f"""Extract all factual claims from this conversation transcript.
+        prompt = f"""Analysiere dieses Gespräch und extrahiere die WICHTIGSTEN Erkenntnisse über den User.
 
-For each claim, provide:
-1. "claim": The extracted statement (clear, standalone sentence)
-2. "source": Brief note about where in the conversation this came from
-3. "confidence": Your confidence in the extraction (0.0 to 1.0)
-4. "claim_type": One of: preference, fact, learning, decision, how_to, struggle
-5. "entities": List of key entities mentioned (technologies, tools, concepts, people)
+EXTRAHIERE NUR:
+✅ Persönliche Präferenzen ("Ich bevorzuge...", "Mein Lieblings...")
+✅ Entscheidungen mit Kontext ("Ich habe mich für X entschieden weil...")
+✅ Erkenntnisse & Learnings ("Ich habe gelernt dass...")
+✅ Arbeitsweise & Workflows ("Ich arbeite normalerweise mit...")
+✅ Projektbezogene Fakten ("Mein Projekt heißt...", "Ich arbeite an...")
+✅ Technologie-Stack & Tools die der User aktiv nutzt
+
+IGNORIERE:
+❌ Einzelne Befehle oder Installationsschritte
+❌ Temporäre Debugging-Sessions
+❌ Offensichtliche Aussagen ohne Mehrwert
+❌ Reine Fragen ohne Antwort
+
+Für jeden Claim:
+1. "claim": Aussage in der ORIGINALSPRACHE des Transcripts (klar, eigenständig)
+2. "source": Woher im Gespräch (kurz)
+3. "confidence": Sicherheit (0.0-1.0)
+4. "claim_type": Einer von:
+   - "preference" (persönliche Vorliebe)
+   - "decision" (Entscheidung mit Begründung)
+   - "workflow" (Arbeitsweise, Prozess)
+   - "insight" (Erkenntnis, Learning)
+   - "project_fact" (Fakt über Projekt/Arbeit)
+   - "tool_usage" (aktiv genutzte Tools/Tech)
+   - "struggle" (Problem, Herausforderung)
+5. "entities": Wichtige Entities (max 5)
+6. "importance": Wichtigkeit 1-10 (10 = sehr persönlich/wichtig)
 
 Transcript:
 ---
 {transcript}
 ---
 
-Return a JSON array of claims. Example:
-[
-  {{
-    "claim": "User prefers TypeScript over JavaScript",
-    "source": "User statement in first message",
-    "confidence": 0.95,
-    "claim_type": "preference",
-    "entities": ["TypeScript", "JavaScript"]
-  }}
-]
-
-JSON Response:"""
+JSON Array (max 10-15 Claims, nur die wichtigsten):"""
 
         response = await self.complete(prompt, system, max_tokens=4096, temperature=0.3)
         
@@ -213,13 +230,42 @@ JSON Response:"""
             
             claims = []
             for item in claims_data:
+                # Map new claim_types to existing memory types
+                claim_type = item.get("claim_type", "fact")
+                type_mapping = {
+                    "preference": "preference",
+                    "decision": "preference",  # Decisions are often preferences
+                    "workflow": "procedural",
+                    "insight": "semantic",
+                    "project_fact": "semantic",
+                    "tool_usage": "semantic",
+                    "struggle": "episodic",
+                    "how_to": "procedural",
+                    "fact": "semantic",
+                    "learning": "semantic",
+                }
+                mapped_type = type_mapping.get(claim_type, "semantic")
+                
+                # Get importance from response or calculate from confidence
+                importance = item.get("importance")
+                if importance is None:
+                    # Derive importance from confidence and type
+                    base_importance = int(item.get("confidence", 0.8) * 10)
+                    if claim_type == "preference":
+                        base_importance = min(10, base_importance + 2)
+                    importance = base_importance
+                
                 claims.append(Claim(
                     claim=item.get("claim", ""),
                     source=item.get("source", "transcript"),
                     confidence=float(item.get("confidence", 0.8)),
-                    claim_type=item.get("claim_type"),
-                    entities=item.get("entities", []),
+                    claim_type=mapped_type,
+                    entities=item.get("entities", [])[:5],  # Limit entities
+                    importance=int(importance),
                 ))
+            
+            # Sort by importance and limit
+            claims.sort(key=lambda c: c.importance if hasattr(c, 'importance') else 5, reverse=True)
             
             logger.info("Claims extracted", count=len(claims))
             return claims
@@ -409,23 +455,33 @@ JSON Response:"""
         
         claims_text = "\n".join([f"- {c.claim} (type: {c.claim_type})" for c in claims])
         
-        system = """You are an expert at identifying patterns in user behavior and preferences.
-Return ONLY a JSON array of pattern strings, no other text."""
+        # Detect language from claims
+        sample_text = " ".join([c.claim for c in claims[:3]])
+        is_german = any(word in sample_text.lower() for word in ["der", "die", "das", "und", "ist", "für", "mit"])
+        
+        system = """Du bist ein Experte für das Erkennen von Mustern in Nutzerverhalten und Präferenzen.
+Antworte in der GLEICHEN SPRACHE wie die Eingabe.
+Return ONLY a JSON array of strings, no other text.""" if is_german else """You are an expert at identifying patterns in user behavior and preferences.
+Respond in the SAME LANGUAGE as the input.
+Return ONLY a JSON array of strings, no other text."""
 
-        prompt = f"""Analyze these statements and identify any patterns in the user's preferences, behavior, or thinking:
+        prompt = f"""Analysiere diese Aussagen und identifiziere Muster:
 
 {claims_text}
 
-Look for:
-- Consistent preferences
-- Evolution in thinking
-- Recurring themes
-- Learning patterns
+Suche nach:
+- 🎯 Konsistente Präferenzen (z.B. "Bevorzugt moderne Tools")
+- 📈 Entwicklung im Denken (z.B. "Wechsel von X zu Y")
+- 🔄 Wiederkehrende Themen (z.B. "Fokus auf Developer Experience")
+- 💡 Lern-Patterns (z.B. "Lernt durch praktische Projekte")
+- 🛠️ Arbeitsweise (z.B. "Iterativer Entwicklungsansatz")
 
-Return a JSON array of pattern descriptions. Example:
-["Consistent preference for typed languages", "Evolution from callbacks to async/await"]
+Return JSON array mit 3-5 Pattern-Beschreibungen.
+Jedes Pattern sollte spezifisch und aussagekräftig sein.
 
-JSON Response:"""
+Beispiel: ["Bevorzugt TypeScript für bessere Typsicherheit", "Nutzt Docker für konsistente Entwicklungsumgebungen"]
+
+JSON:"""
 
         response = await self.complete(prompt, system, max_tokens=512, temperature=0.5)
         

@@ -1,0 +1,35 @@
+# KnowWhere Memory MCP Integration
+
+## WICHTIG: Automatische Memory-Nutzung
+
+Du hast Zugriff auf das **KnowWhere Memory System** über MCP Tools. 
+
+### Wann du IMMER `mcp_recall` nutzen MUSST:
+
+1. **Persönliche Fragen** - "Was ist mein...", "Welches Projekt...", "Meine Präferenzen..."
+2. **Kontext-Fragen** - "Was haben wir besprochen?", "Erinnerst du dich..."
+3. **Präferenz-Fragen** - "Wie mache ich das normalerweise?", "Was bevorzuge ich?"
+4. **Projekt-Fragen** - "An welchem Projekt arbeite ich?", "Was war das letzte..."
+5. **Learning-Fragen** - "Was habe ich gelernt?", "Welche Erkenntnisse..."
+
+### Regel:
+
+**Bei JEDER Frage die persönliche Informationen, Präferenzen, vergangene Gespräche oder Projekte betrifft:**
+
+1. ZUERST `mcp_recall` aufrufen mit einer relevanten Query
+2. DANN die Antwort basierend auf den gefundenen Memories formulieren
+3. Wenn keine Memories gefunden werden, das dem User mitteilen
+
+### Beispiele:
+
+❌ FALSCH: User fragt "Was ist mein Lieblingsprojekt?" → Du antwortest ohne Memory-Suche
+✅ RICHTIG: User fragt "Was ist mein Lieblingsprojekt?" → Du rufst `mcp_recall("Lieblingsprojekt")` auf → Antwortest basierend auf Ergebnis
+
+### Tool-Übersicht:
+
+- `mcp_recall` - Suche in Erinnerungen (semantisch)
+- `mcp_remember` - Speichere neue Erinnerung
+- `mcp_consolidate` - Analysiere Konversation und extrahiere Claims
+- `mcp_analyze` - Analysiere Memory-Statistiken
+- `mcp_delete` - Lösche eine Erinnerung
+- `mcp_export` - Exportiere alle Erinnerungen

@@ -53,16 +53,12 @@ logger = structlog.get_logger(__name__)
 # Get settings
 settings = get_settings()
 
-# Create FastMCP app
-mcp = FastMCP("Knowwhere Memory Server")
-
-
 # =============================================================================
 # Lifecycle Management
 # =============================================================================
 
 @asynccontextmanager
-async def lifespan():
+async def lifespan_context(app):
     """Manage server lifecycle - connect/disconnect resources."""
     logger.info("Starting Knowwhere Memory MCP Server...")
     
@@ -85,6 +81,8 @@ async def lifespan():
         rate_limiter = await get_rate_limiter()
         logger.info("Rate limiter initialized")
         
+        logger.info("✅ All services initialized successfully!")
+        
     except Exception as e:
         logger.error("Failed to initialize connections", error=str(e))
         raise
@@ -97,6 +95,10 @@ async def lifespan():
     await close_database()
     await close_cache()
     logger.info("Shutdown complete")
+
+
+# Create FastMCP app with lifespan
+mcp = FastMCP("Knowwhere Memory Server", lifespan=lifespan_context)
 
 
 # =============================================================================
@@ -147,7 +149,8 @@ async def check_rate_limit_for_user(user_id: UUID) -> tuple[bool, dict]:
 # For development/testing - allows unauthenticated access
 # In production, set REQUIRE_AUTH=true in environment
 REQUIRE_AUTH = settings.debug is False
-DEFAULT_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+# This is the test user created during development - matches memories in DB
+DEFAULT_USER_ID = UUID("9a5640d9-1cbb-4c14-aa26-674021a6127d")
 
 
 def get_user_id_from_context(
@@ -274,12 +277,18 @@ async def mcp_recall(
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
-    Search and retrieve memories using semantic similarity.
+    🔍 ALWAYS USE THIS FIRST when the user asks about their preferences, projects, learnings, or anything personal!
     
-    Use this to find relevant context about the user.
+    This searches the user's stored memories. Use it when the user asks:
+    - "What is my favorite...?" → recall("favorite")
+    - "What do I prefer...?" → recall("preference")
+    - "What projects am I working on?" → recall("project")
+    - "What did I learn about...?" → recall("learning about X")
+    - "What do you know about me?" → recall("user preferences facts")
+    - Any question about the user's history, decisions, or personal context
     
     Args:
-        query: Search query (natural language)
+        query: Search query (natural language) - describe what you're looking for
         filters: Optional filters (memory_type, entity, date_range, importance_min)
         limit: Maximum number of results (1-50)
     """
@@ -490,8 +499,8 @@ def main():
 
 async def run_server():
     """Run the server programmatically."""
-    async with lifespan():
-        await mcp.run_async()
+    # Lifespan is now handled by FastMCP
+    await mcp.run_async()
 
 
 if __name__ == "__main__":
