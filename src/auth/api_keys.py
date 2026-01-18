@@ -283,3 +283,26 @@ async def verify_api_key(api_key: str) -> dict | None:
     """Verify an API key and return user info."""
     manager = await get_api_key_manager()
     return await manager.verify_api_key(api_key)
+
+
+async def create_api_key(
+    user_id: UUID,
+    name: str,
+    scopes: list[str] | None = None,
+    expires_in_days: int | None = None,
+) -> dict:
+    """Create a new API key for a user."""
+    manager = await get_api_key_manager()
+    return await manager.create_api_key(user_id, name, scopes, expires_in_days)
+
+
+async def list_user_api_keys(user_id: UUID) -> list[dict]:
+    """List all API keys for a user."""
+    manager = await get_api_key_manager()
+    return await manager.list_user_keys(user_id)
+
+
+async def revoke_api_key(key_id: UUID, user_id: UUID) -> bool:
+    """Revoke an API key."""
+    manager = await get_api_key_manager()
+    return await manager.revoke_api_key(key_id, user_id)

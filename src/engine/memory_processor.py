@@ -90,12 +90,13 @@ class MemoryProcessor:
         source: MemorySource = MemorySource.CONVERSATION,
         source_id: str | None = None,
         metadata: dict | None = None,
+        embedding: list[float] | None = None,
     ) -> Memory:
         """
         Process and create a new memory.
 
         Steps:
-        1. Generate embedding
+        1. Generate embedding (if not provided)
         2. Calculate importance if not provided
         3. Persist to database
         4. Invalidate cache
@@ -110,6 +111,7 @@ class MemoryProcessor:
             source: Memory source
             source_id: Reference ID
             metadata: Additional metadata
+            embedding: Optional pre-computed embedding (for duplicate check optimization)
 
         Returns:
             Created Memory
@@ -121,9 +123,10 @@ class MemoryProcessor:
             content_length=len(content),
         )
 
-        # Generate embedding
-        embedding_service = await self._get_embedding_service()
-        embedding = await embedding_service.embed(content)
+        # Generate embedding if not provided
+        if embedding is None:
+            embedding_service = await self._get_embedding_service()
+            embedding = await embedding_service.embed(content)
 
         # Calculate importance if not provided
         if importance is None:

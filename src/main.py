@@ -73,6 +73,16 @@ async def lifespan_context(app):
         rate_limiter = await get_rate_limiter()
         logger.info("Rate limiter initialized")
 
+        # Authenticate via environment API key if provided
+        if KNOWWHERE_API_KEY:
+            user_id = await authenticate_from_env_api_key()
+            if user_id:
+                logger.info("✅ Authenticated via KNOWWHERE_API_KEY", user_id=str(user_id))
+            else:
+                logger.warning("⚠️ KNOWWHERE_API_KEY provided but authentication failed")
+        else:
+            logger.warning("⚠️ No KNOWWHERE_API_KEY provided - running in dev mode")
+
         logger.info("✅ All services initialized successfully!")
 
     except Exception as e:
@@ -143,6 +153,32 @@ REQUIRE_AUTH = settings.debug is False
 # This is the test user created during development - matches memories in DB
 DEFAULT_USER_ID = UUID("9a5640d9-1cbb-4c14-aa26-674021a6127d")
 
+# Read API key from environment (for MCP clients like Claude Desktop)
+import os
+KNOWWHERE_API_KEY = os.getenv("KNOWWHERE_API_KEY")
+_env_authenticated_user_id: UUID | None = None
+
+
+async def authenticate_from_env_api_key() -> UUID | None:
+    """Authenticate using API key from environment variable."""
+    global _env_authenticated_user_id
+    
+    if _env_authenticated_user_id:
+        return _env_authenticated_user_id
+    
+    if KNOWWHERE_API_KEY:
+        logger.info("Authenticating with KNOWWHERE_API_KEY from environment")
+        user_info = await verify_api_key(KNOWWHERE_API_KEY)
+        if user_info:
+            _env_authenticated_user_id = user_info["user_id"]
+            AuthContext.set_user_from_api_key(user_info)
+            logger.info("Authenticated via API key", user_id=str(_env_authenticated_user_id))
+            return _env_authenticated_user_id
+        else:
+            logger.error("Invalid KNOWWHERE_API_KEY")
+    
+    return None
+
 
 def get_user_id_from_context(
     context: dict | None = None,
@@ -152,12 +188,19 @@ def get_user_id_from_context(
     Extract user_id from MCP context or metadata.
     
     Priority:
-    1. AuthContext (set by authenticated request)
-    2. Metadata user_id
-    3. Context user_id
-    4. Default (development only)
+    1. Environment API key (KNOWWHERE_API_KEY)
+    2. AuthContext (set by authenticated request)
+    3. Metadata user_id
+    4. Context user_id
+    5. Default (development only)
     """
-    # Check AuthContext first (set by auth middleware)
+    global _env_authenticated_user_id
+    
+    # Check if we authenticated via env API key
+    if _env_authenticated_user_id:
+        return _env_authenticated_user_id
+    
+    # Check AuthContext (set by auth middleware)
     auth_user_id = AuthContext.get_user_id()
     if auth_user_id:
         return auth_user_id
@@ -235,16 +278,30 @@ async def mcp_remember(
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Store a new memory in Knowwhere.
-    
-    Use this to remember facts, preferences, learnings, or procedures about the user.
-    
+    💾 SPEICHERE wichtige Informationen über den User für zukünftige Gespräche.
+
+    ✅ WANN SPEICHERN:
+    - User teilt seinen Namen, Job, Standort → importance: 10, type: "semantic"
+    - User sagt "Ich bevorzuge X" / "Ich mag Y" → importance: 8, type: "preference"  
+    - User erklärt wie etwas funktioniert → importance: 6, type: "procedural"
+    - User erzählt von einem Ereignis → importance: 5, type: "episodic"
+    - User korrigiert frühere Information → importance: 9, type: passend
+
+    ❌ NICHT SPEICHERN:
+    - Temporäre Infos ("Ich bin gerade müde")
+    - Allgemeinwissen (Wikipedia-Fakten)
+    - Einmalige Anfragen ohne Wiederholungswert
+
+    📝 BEISPIELE:
+    - "Ich heiße Max" → remember("User's name is Max", "semantic", importance=10)
+    - "Ich programmiere am liebsten in Python" → remember("User prefers Python", "preference", importance=8)
+    - "Ich arbeite bei Firma X in Berlin" → remember("User works at Firma X in Berlin", "semantic", importance=9)
+
     Args:
-        content: The memory content (what to remember)
-        memory_type: Type of memory (episodic, semantic, preference, procedural, meta)
-        entities: Related entities/concepts (auto-extracted if not provided)
-        importance: Importance level 1-10 (default: 5)
-        metadata: Additional custom metadata
+        content: Was speichern (kurz, prägnant, auf Englisch für bessere Suche)
+        memory_type: episodic (Ereignis), semantic (Fakt), preference (Vorliebe), procedural (Anleitung), meta (über Wissen)
+        entities: Relevante Begriffe ["Python", "Berlin"] - werden auto-extrahiert wenn leer
+        importance: 1-10 (10=sehr wichtig wie Name, 5=normal, 1=unwichtig)
     """
     user_id = get_user_id_from_context(metadata=metadata)
     
@@ -264,32 +321,46 @@ async def mcp_remember(
 async def mcp_recall(
     query: str,
     filters: dict | None = None,
-    limit: int = 10,
+    limit: int = 5,
     offset: int = 0,
     include_sampling: bool = False,
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
-    🔍 ALWAYS USE THIS FIRST when the user asks about their preferences, projects, learnings, or anything personal!
+    🔍 **IMMER ZUERST NUTZEN** bei persönlichen Fragen über den User!
 
-    This searches the user's stored memories. Use it when the user asks:
-    - "What is my favorite...?" → recall("favorite")
-    - "What do I prefer...?" → recall("preference")
-    - "What projects am I working on?" → recall("project")
-    - "What did I learn about...?" → recall("learning about X")
-    - "What do you know about me?" → recall("user preferences facts")
-    - Any question about the user's history, decisions, or personal context
+    ⚡ TRIGGER - Rufe recall() auf bei:
+    ┌─────────────────────────────────────────────────────────────┐
+    │ User fragt nach...          │ Query                         │
+    ├─────────────────────────────┼───────────────────────────────┤
+    │ Namen                       │ recall("name")                │
+    │ "Was weißt du über mich?"   │ recall("user info")           │
+    │ Vorlieben/Favorites         │ recall("preference favorite") │
+    │ Arbeit/Job                  │ recall("work job company")    │
+    │ Projekte                    │ recall("project working on")  │
+    │ Standort                    │ recall("location city")       │
+    │ Techstack/Tools             │ recall("programming tech")    │
+    │ Bei Begrüßung "Hallo!"      │ recall("name") → personalisieren! │
+    └─────────────────────────────┴───────────────────────────────┘
+
+    🎯 TIPPS für gute Queries:
+    - Nutze Keywords statt Sätze: "python preference" statt "Was mag der User bei Python?"
+    - Kombiniere Begriffe: "work project current" für aktuelle Arbeitsprojekte
+    - Bei Unsicherheit: breite Query wie "user info preferences"
+
+    ❌ NICHT für allgemeines Wissen (Wikipedia-Fragen) - nur für User-spezifisches!
 
     Args:
-        query: Search query (natural language) - describe what you're looking for
-        filters: Optional filters (memory_type, entity, date_range, importance_min)
-        limit: Maximum number of results (1-50)
-        offset: Pagination offset for large result sets
-        include_sampling: Enable sampling for large datasets (returns subset for efficiency)
+        query: Suchbegriffe (Keywords funktionieren besser als Sätze!)
+        filters: Optional {"memory_type": "preference", "importance_min": 7}
+        limit: Max Ergebnisse 1-10 (default 5, mehr = mehr Kontext)
     """
     user_id = get_user_id_from_context(metadata=_metadata)
+    
+    # Limit results to prevent context overflow
+    limit = min(limit, 10)
 
-    return await with_auth_and_audit(
+    result = await with_auth_and_audit(
         tool_name="recall",
         user_id=user_id,
         operation_func=recall,
@@ -299,6 +370,15 @@ async def mcp_recall(
         offset=offset,
         include_sampling=include_sampling,
     )
+    
+    # Truncate memory content to prevent context overflow
+    MAX_CONTENT_LENGTH = 500
+    if "memories" in result:
+        for memory in result["memories"]:
+            if "content" in memory and len(memory["content"]) > MAX_CONTENT_LENGTH:
+                memory["content"] = memory["content"][:MAX_CONTENT_LENGTH] + "... [truncated]"
+    
+    return result
 
 
 @mcp.tool()
@@ -309,15 +389,29 @@ async def mcp_consolidate_session(
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
-    Process a conversation transcript and extract structured memories.
+    📋 Analysiere ein ganzes Gespräch und extrahiere automatisch alle wichtigen Memories.
 
-    This analyzes the conversation to find facts, preferences, and learnings,
-    then stores them as memories.
+    ✅ WANN NUTZEN:
+    - Am Ende einer langen Session mit vielen Informationen
+    - User sagt "Speichere alles Wichtige aus diesem Gespräch"
+    - Batch-Verarbeitung von Chat-Logs
+
+    ❌ NICHT NUTZEN:
+    - Für einzelne Fakten → nutze stattdessen remember()
+    - Bei kurzen Gesprächen ohne neue Infos
+
+    🔄 WAS PASSIERT:
+    1. LLM analysiert Transcript
+    2. Extrahiert Fakten, Vorlieben, Lernpunkte
+    3. Speichert als strukturierte Memories
+    4. Dedupliziert gegen bestehende Memories
+
+    ⚠️ HINWEIS: Kann 10-30 Sekunden dauern bei langen Transkripten!
 
     Args:
-        session_transcript: Full conversation transcript to process
-        session_date: When the session occurred (ISO 8601 format)
-        conversation_id: Reference ID for the conversation
+        session_transcript: Vollständiges Gespräch als Text
+        session_date: Datum (ISO 8601, z.B. "2024-01-15")
+        conversation_id: Optionale Referenz-ID
     """
     from datetime import datetime
     import asyncio
@@ -376,14 +470,25 @@ async def mcp_analyze_evolution(
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
-    Track how an entity, preference, or concept evolved over time.
-    
-    Use this to understand how the user's preferences or knowledge changed.
-    
+    📈 Verfolge wie sich ein Thema/Preference über Zeit entwickelt hat.
+
+    ✅ WANN NUTZEN:
+    - "Wie hat sich meine Meinung zu X geändert?"
+    - "Was habe ich über Y über die Zeit gelernt?"
+    - "Zeige mir die Entwicklung meiner TypeScript-Kenntnisse"
+
+    📊 BEISPIELE:
+    - analyze_evolution(entity_name="TypeScript") → Zeigt alle TypeScript-bezogenen Memories chronologisch
+    - analyze_evolution(entity_name="Python", time_window="last_30_days") → Letzte 30 Tage Python-Aktivität
+
+    ❌ NICHT NUTZEN:
+    - Für einfache Suchen → nutze recall()
+    - Ohne konkretes Thema/Entity
+
     Args:
-        entity_id: UUID of a specific memory to track
-        entity_name: Name of an entity to track (e.g., 'TypeScript', 'async/await')
-        time_window: Time window for analysis (last_7_days, last_30_days, last_year, all_time)
+        entity_id: UUID einer spezifischen Memory (optional)
+        entity_name: Thema/Begriff zu tracken z.B. "TypeScript", "React", "Machine Learning"
+        time_window: last_7_days | last_30_days | last_year | all_time (default)
     """
     user_id = get_user_id_from_context(metadata=_metadata)
     
@@ -412,14 +517,25 @@ async def mcp_export_memories(
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
-    Export user memories for backup or analysis.
-    
-    Supports JSON and CSV formats.
-    
+    📤 Exportiere alle Memories als Backup oder zur Analyse.
+
+    ✅ WANN NUTZEN:
+    - "Exportiere alle meine Memories"
+    - "Mach ein Backup meiner Daten"
+    - "Gib mir alle Preferences als JSON"
+
+    📁 FORMATE:
+    - json: Strukturiert, ideal für Backups und Import
+    - csv: Tabellen-Format, gut für Excel/Analyse
+
+    ⚠️ HINWEIS:
+    - include_embeddings=True macht die Datei SEHR groß (1536 floats pro Memory)
+    - Nur für technische Analyse nötig
+
     Args:
-        format: Export format ('json' or 'csv')
-        filters: Optional filters (memory_type)
-        include_embeddings: Include vector embeddings (warning: large data size)
+        format: "json" (default) oder "csv"
+        filters: Optional {"memory_type": "preference"} für nur Preferences
+        include_embeddings: Embedding-Vektoren inkludieren (default: False)
     """
     user_id = get_user_id_from_context(metadata=_metadata)
     
@@ -440,14 +556,25 @@ async def mcp_delete_memory(
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
-    Delete a specific memory.
-    
-    Performs soft-delete by default (GDPR-compliant with grace period).
-    Use hard_delete for immediate permanent deletion.
-    
+    🗑️ Lösche eine spezifische Memory.
+
+    ✅ WANN NUTZEN:
+    - "Lösche diese Memory"
+    - "Vergiss dass ich X gesagt habe" (nach recall() → ID holen)
+    - "Diese Info ist falsch, entferne sie"
+
+    🔒 SICHERHEIT:
+    - Default: Soft-Delete (30 Tage Wiederherstellbar, GDPR-konform)
+    - hard_delete=True: Sofort permanent gelöscht
+
+    ⚠️ WORKFLOW:
+    1. Erst recall() um die Memory zu finden
+    2. Memory-ID aus dem Ergebnis verwenden
+    3. delete_memory(memory_id="...")
+
     Args:
-        memory_id: ID of the memory to delete
-        hard_delete: Whether to permanently delete (vs soft-delete)
+        memory_id: UUID der Memory (aus recall()-Ergebnis)
+        hard_delete: True = permanent, False = soft-delete (default)
     """
     user_id = get_user_id_from_context(metadata=_metadata)
     

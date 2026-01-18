@@ -343,9 +343,39 @@ class EdgeRepository:
         """Count edges for a user."""
         query = "SELECT COUNT(*) FROM knowledge_edges WHERE user_id = $1"
         return await self.db.fetchval(query, user_id) or 0
+
+    async def get_edges_for_memory(
+        self,
+        memory_id: UUID,
+        user_id: UUID,
+    ) -> list[KnowledgeEdge]:
+        """Get all edges connected to a specific memory (alias for get_all_edges_for_memory)."""
+        return await self.get_all_edges_for_memory(memory_id, user_id)
+
+    async def get_all_for_user(
+        self,
+        user_id: UUID,
+        limit: int = 100,
+    ) -> list[KnowledgeEdge]:
+        """Get all edges for a user with limit."""
+        query = """
+            SELECT * FROM knowledge_edges
+            WHERE user_id = $1
+            ORDER BY strength DESC, created_at DESC
+            LIMIT $2
+        """
+        rows = await self.db.fetch(query, user_id, limit)
+        return [self._row_to_edge(row) for row in rows]
     
     def _row_to_edge(self, row: Any) -> KnowledgeEdge:
         """Convert database row to KnowledgeEdge model."""
+        import json
+        
+        # Handle JSONB field that might come as string
+        metadata = row["metadata"] or {}
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata) if metadata else {}
+        
         return KnowledgeEdge(
             id=row["id"],
             user_id=row["user_id"],
@@ -359,7 +389,7 @@ class EdgeRepository:
             reason=row["reason"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
-            metadata=row["metadata"] or {},
+            metadata=metadata,
         )
     
     def _row_to_edge_with_nodes(self, row: Any) -> EdgeWithNodes:

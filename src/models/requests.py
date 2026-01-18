@@ -50,8 +50,8 @@ class RememberInput(BaseModel):
 class RememberOutput(BaseModel):
     """Output schema for the remember() tool."""
     
-    memory_id: UUID = Field(..., description="ID of the created memory")
-    status: str = Field(default="created", description="Operation status")
+    memory_id: UUID = Field(..., description="ID of the created or existing memory")
+    status: str = Field(default="created", description="Operation status: created, duplicate_found")
     embedding_status: str = Field(
         default="generated",
         description="Status of embedding generation"
@@ -63,6 +63,10 @@ class RememberOutput(BaseModel):
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         description="Creation timestamp"
+    )
+    message: str | None = Field(
+        default=None,
+        description="Additional message (e.g., duplicate detection info)"
     )
 
 

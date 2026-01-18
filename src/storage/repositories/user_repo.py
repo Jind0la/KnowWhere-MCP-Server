@@ -220,6 +220,17 @@ class UserRepository:
     
     def _row_to_user(self, row: Any) -> User:
         """Convert database row to User model."""
+        import json
+        
+        # Handle JSONB fields that might come as strings
+        settings = row["settings"] or {}
+        metadata = row["metadata"] or {}
+        
+        if isinstance(settings, str):
+            settings = json.loads(settings) if settings else {}
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata) if metadata else {}
+        
         return User(
             id=row["id"],
             email=row["email"],
@@ -238,8 +249,8 @@ class UserRepository:
             status=UserStatus(row["status"]) if row["status"] else UserStatus.ACTIVE,
             suspended_at=row["suspended_at"],
             suspension_reason=row["suspension_reason"],
-            settings=row["settings"] or {},
-            metadata=row["metadata"] or {},
+            settings=settings,
+            metadata=metadata,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             deleted_at=row["deleted_at"],
