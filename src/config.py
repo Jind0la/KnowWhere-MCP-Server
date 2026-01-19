@@ -4,6 +4,7 @@ Configuration Management
 Uses Pydantic Settings for type-safe environment variable handling.
 """
 
+import os
 from functools import lru_cache
 from typing import Any, Dict, Literal, Type, TypeVar
 from contextlib import asynccontextmanager
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=".env" if os.path.exists(".env") else None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -131,7 +132,25 @@ def get_settings() -> Settings:
 
     Uses lru_cache to ensure settings are only loaded once.
     """
-    return Settings()
+    try:
+        settings = Settings()
+        return settings
+    except Exception as e:
+        # Print detected environment for debugging (masked)
+        print("\n--- CONFIGURATION ERROR ---")
+        print(f"Error: {str(e)}")
+        print("\nDetected Environment Variables (Presence check):")
+        critical_vars = [
+            "SUPABASE_URL", "SUPABASE_KEY", "DATABASE_URL", 
+            "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PORT"
+        ]
+        for var in critical_vars:
+            exists = "✅ FOUND" if os.environ.get(var) else "❌ MISSING"
+            print(f"{var}: {exists}")
+        
+        print("\nAll ENV Keys:", list(os.environ.keys()))
+        print("---------------------------\n")
+        raise
 
 
 # Convenience function for testing
