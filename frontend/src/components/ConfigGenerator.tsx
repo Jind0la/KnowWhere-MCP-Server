@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Copy, Check, Monitor, Terminal, Cloud, ChevronRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Copy, Check, Monitor, Terminal, Cloud, Eye, EyeOff, Key } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -48,9 +55,20 @@ interface ClientConfig {
     };
 }
 
+export interface ApiKeyOption {
+    id: string;
+    name: string;
+    key_prefix: string;
+    fullKey?: string; // Only available for newly created keys
+}
+
 interface ConfigGeneratorProps {
-    apiKey: string;
-    onComplete?: () => void;
+    /** List of available API keys to choose from */
+    apiKeys: ApiKeyOption[];
+    /** Optional: Pre-select a specific key (e.g., newly created) */
+    selectedKeyId?: string;
+    /** Optional: The full key value (only shown once after creation) */
+    newlyCreatedKey?: string;
 }
 
 // =============================================================================
@@ -199,7 +217,44 @@ function detectOS(): "macos" | "windows" | "linux" {
     return "linux";
 }
 
-function generateSSEConfig(apiKey: string): string {
+function generateSSEConfig(apiKey: string, showKey: boolean): string {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://app.knowwhere.dev";
+    const displayKey = showKey ? apiKey : "••••••••••••••••••••";
+    return JSON.stringify(
+        {
+            knowwhere: {
+                url: `${baseUrl}/sse`,
+                headers: {
+                    Authorization: `Bearer ${displayKey}`,
+                },
+            },
+        },
+        null,
+        2
+    );
+}
+
+function generateStdioConfig(apiKey: string, showKey: boolean): string {
+    const displayKey = showKey ? apiKey : "••••••••••••••••••••";
+    return JSON.stringify(
+        {
+            knowwhere: {
+                command: "python",
+                args: ["-m", "src.main"],
+                cwd: "/path/to/KW_Mem_MCP_Server",
+                env: {
+                    KNOWWHERE_API_KEY: displayKey,
+                    PYTHONPATH: "/path/to/KW_Mem_MCP_Server",
+                },
+            },
+        },
+        null,
+        2
+    );
+}
+
+// Get the actual key for copying (with real value)
+function generateSSEConfigForCopy(apiKey: string): string {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://app.knowwhere.dev";
     return JSON.stringify(
         {
@@ -215,7 +270,7 @@ function generateSSEConfig(apiKey: string): string {
     );
 }
 
-function generateStdioConfig(apiKey: string): string {
+function generateStdioConfigForCopy(apiKey: string): string {
     return JSON.stringify(
         {
             knowwhere: {
@@ -316,18 +371,55 @@ function ClientCard({ client, selected, onSelect }: ClientCardProps) {
 // Main Component
 // =============================================================================
 
-export function ConfigGenerator({ apiKey, onComplete }: ConfigGeneratorProps) {
+export function ConfigGenerator({
+    apiKeys,
+    selectedKeyId,
+    newlyCreatedKey,
+}: ConfigGeneratorProps) {
     const [selectedClient, setSelectedClient] = useState<MCPClient>("cursor");
     const [transportMode, setTransportMode] = useState<TransportMode>("sse");
+    const [showKeyInConfig, setShowKeyInConfig] = useState(false);
+    const [selectedKey, setSelectedKey] = useState<string>(selectedKeyId || "");
+
+    // Set default selected key
+    useEffect(() => {
+        if (selectedKeyId) {
+            setSelectedKey(selectedKeyId);
+        } else if (apiKeys.length > 0 && !selectedKey) {
+            setSelectedKey(apiKeys[0].id);
+        }
+    }, [apiKeys, selectedKeyId, selectedKey]);
 
     const clientConfig = CLIENT_CONFIGS[selectedClient];
     const os = detectOS();
     const configPath = clientConfig.configPath[os];
 
-    const config =
+    // Get the currently selected key info
+    const currentKey = apiKeys.find((k) => k.id === selectedKey);
+
+    // Determine which key value to use
+    // If we have a newly created key and it matches the selection, use the full key
+    // Otherwise, we can only show the prefix
+    const selectedKeyInfo = currentKey;
+    const hasFullKey = newlyCreatedKey && selectedKeyId === selectedKey;
+    const keyValueForConfig = hasFullKey ? newlyCreatedKey : currentKey?.key_prefix + "...";
+    const actualKeyValue = hasFullKey ? newlyCreatedKey : "";
+
+    // Generate display config (may have masked key)
+    const displayConfig =
         transportMode === "sse"
-            ? generateSSEConfig(apiKey)
-            : generateStdioConfig(apiKey);
+            ? generateSSEConfig(keyValueForConfig, showKeyInConfig || !hasFullKey)
+            : generateStdioConfig(keyValueForConfig, showKeyInConfig || !hasFullKey);
+
+    // Generate config for copying (always with real key if available)
+    const copyConfig =
+        transportMode === "sse"
+            ? hasFullKey
+                ? generateSSEConfigForCopy(newlyCreatedKey)
+                : generateSSEConfig(keyValueForConfig, true)
+            : hasFullKey
+                ? generateStdioConfigForCopy(newlyCreatedKey)
+                : generateStdioConfig(keyValueForConfig, true);
 
     const instructions =
         transportMode === "sse"
@@ -339,19 +431,86 @@ export function ConfigGenerator({ apiKey, onComplete }: ConfigGeneratorProps) {
     const canUseStdio = clientConfig.supportsStdio;
 
     // Auto-switch transport if not supported
-    if (transportMode === "sse" && !canUseSSE && canUseStdio) {
-        setTransportMode("stdio");
-    } else if (transportMode === "stdio" && !canUseStdio && canUseSSE) {
-        setTransportMode("sse");
+    useEffect(() => {
+        if (transportMode === "sse" && !canUseSSE && canUseStdio) {
+            setTransportMode("stdio");
+        } else if (transportMode === "stdio" && !canUseStdio && canUseSSE) {
+            setTransportMode("sse");
+        }
+    }, [transportMode, canUseSSE, canUseStdio]);
+
+    if (apiKeys.length === 0) {
+        return (
+            <div className="text-center py-8 text-muted-foreground">
+                <Key className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">Keine API Keys vorhanden</p>
+                <p className="text-sm">
+                    Erstelle zuerst einen API Key, um die Konfiguration zu generieren.
+                </p>
+            </div>
+        );
     }
 
     return (
         <div className="space-y-6">
+            {/* API Key Selection */}
+            <div className="space-y-3">
+                <Label className="text-base font-semibold flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    API Key auswählen
+                </Label>
+                <div className="flex items-center gap-3">
+                    <Select value={selectedKey} onValueChange={setSelectedKey}>
+                        <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Wähle einen API Key" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {apiKeys.map((key) => (
+                                <SelectItem key={key.id} value={key.id}>
+                                    <span className="flex items-center gap-2">
+                                        {key.name}
+                                        <span className="text-muted-foreground text-xs">
+                                            ({key.key_prefix}...)
+                                        </span>
+                                        {newlyCreatedKey && selectedKeyId === key.id && (
+                                            <Badge variant="secondary" className="text-xs">
+                                                Neu
+                                            </Badge>
+                                        )}
+                                    </span>
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
+                    {/* Eye toggle for showing/hiding key in config */}
+                    {hasFullKey && (
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => setShowKeyInConfig(!showKeyInConfig)}
+                            title={showKeyInConfig ? "Key verstecken" : "Key anzeigen"}
+                        >
+                            {showKeyInConfig ? (
+                                <EyeOff className="w-4 h-4" />
+                            ) : (
+                                <Eye className="w-4 h-4" />
+                            )}
+                        </Button>
+                    )}
+                </div>
+
+                {!hasFullKey && selectedKey && (
+                    <p className="text-xs text-muted-foreground">
+                        💡 Der vollständige Key wird nur einmalig nach der Erstellung angezeigt.
+                        Wähle einen neu erstellten Key, um die Konfiguration mit dem echten Key zu kopieren.
+                    </p>
+                )}
+            </div>
+
             {/* Client Selection */}
             <div className="space-y-3">
-                <Label className="text-base font-semibold">
-                    Wähle deinen AI-Client
-                </Label>
+                <Label className="text-base font-semibold">Wähle deinen AI-Client</Label>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                     {Object.values(CLIENT_CONFIGS).map((client) => (
                         <ClientCard
@@ -437,11 +596,26 @@ export function ConfigGenerator({ apiKey, onComplete }: ConfigGeneratorProps) {
 
                     {/* Config code block */}
                     <div className="relative">
-                        <div className="absolute top-2 right-2 z-10">
-                            <CopyButton text={config} />
+                        <div className="absolute top-2 right-2 z-10 flex gap-2">
+                            {hasFullKey && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setShowKeyInConfig(!showKeyInConfig)}
+                                    title={showKeyInConfig ? "Key verstecken" : "Key anzeigen"}
+                                    className="h-8 w-8 bg-zinc-800 hover:bg-zinc-700"
+                                >
+                                    {showKeyInConfig ? (
+                                        <EyeOff className="w-4 h-4 text-zinc-300" />
+                                    ) : (
+                                        <Eye className="w-4 h-4 text-zinc-300" />
+                                    )}
+                                </Button>
+                            )}
+                            <CopyButton text={copyConfig} />
                         </div>
                         <pre className="p-4 bg-zinc-950 text-zinc-100 rounded-lg overflow-x-auto text-sm">
-                            <code>{config}</code>
+                            <code>{displayConfig}</code>
                         </pre>
                     </div>
 
@@ -457,16 +631,6 @@ export function ConfigGenerator({ apiKey, onComplete }: ConfigGeneratorProps) {
                     )}
                 </CardContent>
             </Card>
-
-            {/* Complete button */}
-            {onComplete && (
-                <div className="flex justify-end">
-                    <Button onClick={onComplete} className="gap-2">
-                        Fertig – zum Dashboard
-                        <ChevronRight className="w-4 h-4" />
-                    </Button>
-                </div>
-            )}
         </div>
     );
 }

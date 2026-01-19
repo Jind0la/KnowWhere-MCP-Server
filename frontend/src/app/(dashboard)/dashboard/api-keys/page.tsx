@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/select";
 import { api, type ApiKey } from "@/lib/api";
 import { toast } from "sonner";
-import { ConfigGenerator } from "@/components/ConfigGenerator";
+import { ConfigGenerator, type ApiKeyOption } from "@/components/ConfigGenerator";
 
 const availableScopes = [
   { value: "memories:read", label: "Memories lesen" },
@@ -65,6 +65,7 @@ export default function ApiKeysPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newKeyDialogOpen, setNewKeyDialogOpen] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [createdKeyId, setCreatedKeyId] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
 
   // Form state
@@ -108,6 +109,7 @@ export default function ApiKeysPage() {
       });
 
       setCreatedKey(result.key);
+      setCreatedKeyId(result.id);
       setCreateDialogOpen(false);
       setNewKeyDialogOpen(true);
 
@@ -153,6 +155,15 @@ export default function ApiKeysPage() {
       setSelectedScopes([...selectedScopes, scope]);
     }
   };
+
+  // Convert keys to ApiKeyOption format for ConfigGenerator
+  const apiKeyOptions: ApiKeyOption[] = keys
+    .filter((k) => k.status === "active")
+    .map((k) => ({
+      id: k.id,
+      name: k.name,
+      key_prefix: k.key_prefix,
+    }));
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -245,21 +256,20 @@ export default function ApiKeysPage() {
         </Dialog>
       </div>
 
-      {/* New Key Dialog with Config Generator */}
+      {/* Simple Key Created Dialog */}
       <Dialog open={newKeyDialogOpen} onOpenChange={setNewKeyDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-green-500" />
-              API Key erstellt – Jetzt verbinden!
+              API Key erstellt!
             </DialogTitle>
             <DialogDescription>
-              Wähle deinen AI-Client und kopiere die fertige Konfiguration.
+              Kopiere deinen API Key jetzt. Er wird nur einmal angezeigt!
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* API Key Display */}
             <div className="p-4 bg-muted rounded-lg space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">Dein API Key</Label>
@@ -295,19 +305,19 @@ export default function ApiKeysPage() {
                 Speichere diesen Key sicher ab. Er wird nur einmal angezeigt!
               </p>
             </div>
-
-            {/* Config Generator */}
-            {createdKey && (
-              <ConfigGenerator
-                apiKey={createdKey}
-                onComplete={() => {
-                  setNewKeyDialogOpen(false);
-                  setCreatedKey(null);
-                  setShowKey(false);
-                }}
-              />
-            )}
           </div>
+
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setNewKeyDialogOpen(false);
+                setShowKey(false);
+                // Keep createdKey and createdKeyId for the ConfigGenerator below
+              }}
+            >
+              Verstanden
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -415,17 +425,19 @@ export default function ApiKeysPage() {
         </CardContent>
       </Card>
 
-      {/* Interactive Config Generator */}
+      {/* Interactive Config Generator with Key Selection */}
       <Card>
         <CardHeader>
           <CardTitle>🚀 Schnell-Setup</CardTitle>
           <CardDescription>
-            Wähle deinen AI-Client und kopiere die fertige Konfiguration
+            Wähle deinen API Key und AI-Client, um die fertige Konfiguration zu erhalten
           </CardDescription>
         </CardHeader>
         <CardContent>
           <ConfigGenerator
-            apiKey="YOUR_API_KEY"
+            apiKeys={apiKeyOptions}
+            selectedKeyId={createdKeyId || undefined}
+            newlyCreatedKey={createdKey || undefined}
           />
         </CardContent>
       </Card>
