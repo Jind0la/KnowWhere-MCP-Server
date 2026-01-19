@@ -4,6 +4,7 @@ Edge Repository
 Data access layer for Knowledge Graph edges.
 """
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -49,7 +50,7 @@ class EdgeRepository:
             edge.causality,
             edge.bidirectional,
             edge.reason,
-            edge.metadata,
+            json.dumps(edge.metadata) if edge.metadata else '{}',
         )
         
         logger.info(
@@ -92,7 +93,7 @@ class EdgeRepository:
                 edge.causality,
                 edge.bidirectional,
                 edge.reason,
-                edge.metadata,
+                json.dumps(edge.metadata) if edge.metadata else '{}',
             )
             results.append(self._row_to_edge(row))
         

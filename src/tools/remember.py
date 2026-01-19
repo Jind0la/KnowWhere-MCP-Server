@@ -11,7 +11,6 @@ from uuid import UUID
 import structlog
 
 from src.config import get_settings
-from src.engine.entity_extractor import get_entity_extractor
 from src.engine.memory_processor import MemoryProcessor
 from src.models.memory import MemorySource, MemoryType
 from src.models.requests import RememberInput, RememberOutput
@@ -152,11 +151,31 @@ async def remember(
                 message=f"Similar memory already exists (similarity: {existing.get('similarity', 1.0):.0%})",
             )
     
-    # Extract entities if not provided
-    extracted_entities = entities or []
-    if not extracted_entities:
-        entity_extractor = await get_entity_extractor()
-        extracted_entities = await entity_extractor.extract(content)
+    # Extract entities using Zettelkasten EntityHubService
+    # This uses a self-learning dictionary + LLM fallback
+    from src.services.entity_hub_service import get_entity_hub_service
+    
+    entity_hub_service = await get_entity_hub_service()
+    extraction_result = await entity_hub_service.extract_and_learn(user_id, content)
+    
+    # Get entity names for the memory
+    extracted_entities = [e.name for e in extraction_result.entities]
+    
+    # If user provided specific entities, merge them
+    if entities:
+        # User-provided entities take priority
+        user_entities_lower = {e.lower() for e in entities}
+        for e in extracted_entities:
+            if e.lower() not in user_entities_lower:
+                entities.append(e)
+        extracted_entities = entities
+    
+    logger.debug(
+        "Entities extracted",
+        from_dictionary=len(extraction_result.from_dictionary),
+        from_llm=len(extraction_result.from_llm),
+        total=len(extracted_entities),
+    )
     
     # Process and store memory (pass pre-computed embedding)
     processor = MemoryProcessor()
@@ -169,6 +188,12 @@ async def remember(
         source=MemorySource.MANUAL,
         metadata=metadata or {},
         embedding=embedding,  # Pass pre-computed embedding
+    )
+    
+    # Link memory to entity hubs for graph navigation
+    await entity_hub_service.link_memory_to_entities(
+        memory=memory,
+        entities=extraction_result.entities,
     )
     
     logger.info(

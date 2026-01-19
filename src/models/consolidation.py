@@ -58,6 +58,8 @@ class Claim(BaseModel):
         le=10,
         description="Importance score 1-10 (10 = very personal/important)"
     )
+    domain: str | None = Field(default=None, description="Semantic Domain (e.g. Knowwhere)")
+    category: str | None = Field(default=None, description="Semantic Category (e.g. Backend)")
     
     def to_memory_type(self) -> str:
         """Map claim type to memory type."""
@@ -170,6 +172,7 @@ class ConsolidationResult(BaseModel):
         description="Unique ID for this consolidation"
     )
     user_id: UUID = Field(..., description="User who owns these memories")
+    conversation_id: str | None = Field(default=None, description="Optional conversation reference")
     
     # Processing stats
     session_transcript_length: int = Field(

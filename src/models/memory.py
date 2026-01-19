@@ -61,7 +61,15 @@ class MemoryBase(BaseModel):
     )
     entities: list[str] = Field(
         default_factory=list,
-        description="Extracted entities (technologies, people, concepts)"
+        description="List of entities/concepts extracted from the memory"
+    )
+    domain: str | None = Field(
+        default=None,
+        description="High-level project or domain (e.g. Knowwhere, Personal)"
+    )
+    category: str | None = Field(
+        default=None,
+        description="Functional category or topic (e.g. Backend, Auth)"
     )
     importance: int = Field(
         default=5,

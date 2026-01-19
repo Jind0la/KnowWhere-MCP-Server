@@ -224,8 +224,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="h-2 bg-muted rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all ${
-                            memoryTypeColors[type]?.includes("blue")
+                          className={`h-full rounded-full transition-all ${memoryTypeColors[type]?.includes("blue")
                               ? "bg-blue-500"
                               : memoryTypeColors[type]?.includes("emerald")
                                 ? "bg-emerald-500"
@@ -234,7 +233,7 @@ export default function DashboardPage() {
                                   : memoryTypeColors[type]?.includes("orange")
                                     ? "bg-orange-500"
                                     : "bg-purple-500"
-                          }`}
+                            }`}
                           style={{ width: `${percentage}%` }}
                         />
                       </div>
@@ -244,16 +243,16 @@ export default function DashboardPage() {
 
               {(!stats?.by_type ||
                 Object.keys(stats.by_type).length === 0) && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Database className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Noch keine Memories vorhanden</p>
-                  <Link href="/dashboard/memories/new">
-                    <Button variant="link" className="mt-2">
-                      Erste Memory erstellen
-                    </Button>
-                  </Link>
-                </div>
-              )}
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Database className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>Noch keine Memories vorhanden</p>
+                    <Link href="/dashboard/memories/new">
+                      <Button variant="link" className="mt-2">
+                        Erste Memory erstellen
+                      </Button>
+                    </Link>
+                  </div>
+                )}
             </div>
           </CardContent>
         </Card>
@@ -287,6 +286,11 @@ export default function DashboardPage() {
                     >
                       {memoryTypeLabels[activity.type] || activity.type}
                     </Badge>
+                    {(activity as any).category && (
+                      <Badge variant="outline" className="ml-1 text-xs border-blue-500/30 text-blue-600 bg-blue-500/5">
+                        {(activity as any).category}
+                      </Badge>
+                    )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm line-clamp-2">
                         {activity.content_preview}
@@ -305,11 +309,11 @@ export default function DashboardPage() {
 
               {(!stats?.recent_activity ||
                 stats.recent_activity.length === 0) && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Keine kürzlichen Aktivitäten</p>
-                </div>
-              )}
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>Keine kürzlichen Aktivitäten</p>
+                  </div>
+                )}
             </div>
           </CardContent>
         </Card>

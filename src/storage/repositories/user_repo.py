@@ -29,26 +29,30 @@ class UserRepository:
     def __init__(self, db: Database):
         self.db = db
     
-    async def create(self, user: UserCreate) -> User:
+    async def create(self, user: UserCreate, user_id: UUID | None = None) -> User:
         """Create a new user."""
-        query = """
-            INSERT INTO users (
-                email, username, full_name, avatar_url, bio,
-                auth_provider, password_hash
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        fields = [
+            "email", "username", "full_name", "avatar_url", "bio",
+            "auth_provider", "password_hash"
+        ]
+        values = [
+            user.email, user.username, user.full_name, user.avatar_url, user.bio,
+            user.auth_provider.value, user.password_hash
+        ]
+        
+        if user_id:
+            fields.append("id")
+            values.append(user_id)
+            
+        param_placeholders = ", ".join([f"${i+1}" for i in range(len(fields))])
+        
+        query = f"""
+            INSERT INTO users ({", ".join(fields)})
+            VALUES ({param_placeholders})
             RETURNING *
         """
         
-        row = await self.db.fetchrow(
-            query,
-            user.email,
-            user.username,
-            user.full_name,
-            user.avatar_url,
-            user.bio,
-            user.auth_provider.value,
-            user.password_hash,
-        )
+        row = await self.db.fetchrow(query, *values)
         
         logger.info("User created", user_id=row["id"], email=user.email)
         return self._row_to_user(row)

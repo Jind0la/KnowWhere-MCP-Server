@@ -55,8 +55,10 @@ export default function DashboardLayout({
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const supabase = createClient();
 
     const getUser = async () => {
@@ -173,50 +175,52 @@ export default function DashboardLayout({
 
           {/* User Menu */}
           <div className="border-t border-sidebar-border p-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start gap-3 px-3 py-2 h-auto"
-                >
-                  <Avatar className="w-8 h-8">
-                    <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground text-xs">
-                      {user
-                        ? getInitials(
+            {mounted && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start gap-3 px-3 py-2 h-auto"
+                  >
+                    <Avatar className="w-8 h-8">
+                      <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground text-xs">
+                        {user
+                          ? getInitials(
                             user.email || "",
                             user.user_metadata?.full_name
                           )
-                        : "??"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 text-left">
-                    <p className="text-sm font-medium text-sidebar-foreground truncate">
-                      {user?.user_metadata?.full_name || "User"}
-                    </p>
-                    <p className="text-xs text-sidebar-foreground/60 truncate">
-                      {user?.email}
-                    </p>
-                  </div>
-                  <ChevronDown className="w-4 h-4 text-sidebar-foreground/60" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/settings">
-                    <Settings className="w-4 h-4 mr-2" />
-                    Einstellungen
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleSignOut}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Abmelden
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                          : "??"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-medium text-sidebar-foreground truncate">
+                        {user?.user_metadata?.full_name || "User"}
+                      </p>
+                      <p className="text-xs text-sidebar-foreground/60 truncate">
+                        {user?.email}
+                      </p>
+                    </div>
+                    <ChevronDown className="w-4 h-4 text-sidebar-foreground/60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard/settings">
+                      <Settings className="w-4 h-4 mr-2" />
+                      Einstellungen
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={handleSignOut}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Abmelden
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </aside>

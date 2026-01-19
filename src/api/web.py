@@ -23,6 +23,7 @@ from src.storage.repositories.user_repo import UserRepository
 from src.storage.repositories.edge_repo import EdgeRepository
 from src.storage.database import get_database
 from src.services.embedding import get_embedding_service
+from src.services.llm import get_llm_service
 from src.models.memory import MemoryType, MemoryCreate, MemoryUpdate, MemoryStatus
 
 logger = structlog.get_logger(__name__)
@@ -169,6 +170,8 @@ async def list_memories(
                 "created_at": m.created_at.isoformat(),
                 "updated_at": m.updated_at.isoformat(),
                 "last_accessed": m.last_accessed.isoformat() if m.last_accessed else None,
+                "domain": m.domain,
+                "category": m.category,
             }
             for m in memories
         ],
@@ -188,12 +191,9 @@ async def get_memory(
     db = await get_database()
     repo = MemoryRepository(db)
 
-    memory = await repo.get_by_id(memory_id)
-    if not memory or memory.user_id != user.id:
+    memory = await repo.get_by_id(memory_id, user.id, update_access=True)
+    if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
-
-    # Update access tracking
-    await repo.update_access(memory_id)
 
     return {
         "id": str(memory.id),
@@ -210,6 +210,8 @@ async def get_memory(
         "updated_at": memory.updated_at.isoformat(),
         "last_accessed": datetime.utcnow().isoformat(),
         "metadata": memory.metadata,
+        "domain": memory.domain,
+        "category": memory.category,
     }
 
 
@@ -226,6 +228,18 @@ async def create_memory(
     # Generate embedding
     embedding = await embedding_service.embed(data.content)
 
+    # Auto-classify content
+    llm_service = await get_llm_service()
+    
+    # Get existing context (Zettelkasten hubs)
+    context = await repo.get_unique_domains_categories(user.id)
+    
+    classification = await llm_service.classify_content(
+        data.content,
+        existing_domains=context["domains"],
+        existing_categories=context["categories"]
+    )
+
     # Create memory
     memory_create = MemoryCreate(
         user_id=user.id,
@@ -235,6 +249,9 @@ async def create_memory(
         importance=data.importance,
         embedding=embedding,
         metadata=data.metadata,
+        # Normalize inputs
+        domain=classification.get("domain").strip().title() if classification.get("domain") else None,
+        category=classification.get("category").strip().title() if classification.get("category") else None,
     )
 
     memory = await repo.create(memory_create)
@@ -260,8 +277,8 @@ async def update_memory(
     repo = MemoryRepository(db)
 
     # Check ownership
-    memory = await repo.get_by_id(memory_id)
-    if not memory or memory.user_id != user.id:
+    memory = await repo.get_by_id(memory_id, user.id)
+    if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
 
     # Build update
@@ -278,7 +295,7 @@ async def update_memory(
         update_data.status = MemoryStatus(data.status)
 
     # Update
-    updated = await repo.update(memory_id, update_data)
+    updated = await repo.update(memory_id, user.id, update_data)
 
     return {
         "id": str(updated.id),
@@ -302,14 +319,14 @@ async def delete_memory(
     repo = MemoryRepository(db)
 
     # Check ownership
-    memory = await repo.get_by_id(memory_id)
-    if not memory or memory.user_id != user.id:
+    memory = await repo.get_by_id(memory_id, user.id)
+    if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
 
     if hard:
-        success = await repo.hard_delete(memory_id)
+        success = await repo.hard_delete(memory_id, user.id)
     else:
-        success = await repo.soft_delete(memory_id)
+        success = await repo.soft_delete(memory_id, user.id)
 
     return {"success": success, "deleted_id": str(memory_id)}
 
@@ -327,12 +344,17 @@ async def search_memories(
     # Generate query embedding
     query_embedding = await embedding_service.embed(data.query)
 
-    # Search
-    memories = await repo.search_by_vector(
-        user_id=user.id,
+    # Search using vector similarity
+    memory_type_filter = None
+    if data.filters.get("memory_type"):
+        from src.models.memory import MemoryType
+        memory_type_filter = MemoryType(data.filters["memory_type"])
+    
+    memories = await repo.search_similar(
         embedding=query_embedding,
+        user_id=user.id,
         limit=data.limit,
-        memory_type=data.filters.get("memory_type"),
+        memory_type=memory_type_filter,
         min_importance=data.filters.get("importance_min"),
     )
 
@@ -419,52 +441,200 @@ async def get_graph_edges(
     user: CurrentUser = Depends(get_current_user),
     memory_id: UUID | None = Query(default=None),
 ):
-    """Get knowledge graph edges for visualization."""
+    """Get knowledge graph edges for visualization.
+    
+    Returns memory nodes organized by domain/category hierarchy.
+    Entity hubs are fetched on-demand via separate endpoints.
+    """
     db = await get_database()
     edge_repo = EdgeRepository(db)
     memory_repo = MemoryRepository(db)
 
+    # Get all user memories
+    all_memories = await memory_repo.list_by_user(user.id, limit=1000)
+    memory_ids = {m.id for m in all_memories}
+
     if memory_id:
         # Get edges connected to a specific memory
         edges = await edge_repo.get_edges_for_memory(memory_id, user.id)
-        # Get connected memory IDs
-        memory_ids = set()
-        for e in edges:
-            memory_ids.add(e.from_node_id)
-            memory_ids.add(e.to_node_id)
     else:
         # Get all edges for user
-        edges = await edge_repo.get_all_for_user(user.id, limit=200)
-        memory_ids = set()
-        for e in edges:
-            memory_ids.add(e.from_node_id)
-            memory_ids.add(e.to_node_id)
+        edges = await edge_repo.get_all_for_user(user.id, limit=500)
 
-    # Get memory details for nodes
+    # Build nodes list
     nodes = []
-    for mid in memory_ids:
-        mem = await memory_repo.get_by_id(mid, user.id)
-        if mem:
-            nodes.append({
-                "id": str(mem.id),
-                "content": mem.content[:100],
-                "memory_type": mem.memory_type.value,
-                "importance": mem.importance,
+    for mem in all_memories:
+        nodes.append({
+            "id": str(mem.id),
+            "content": mem.content[:100],
+            "memory_type": mem.memory_type.value,
+            "importance": mem.importance,
+            "entities": mem.entities,
+            "domain": mem.domain,
+            "category": mem.category,
+        })
+
+    # Add virtual User Profile node
+    user_node_id = f"user_{user.id}"
+    nodes.append({
+        "id": user_node_id,
+        "content": f"User Profile: {user.full_name or user.email}",
+        "memory_type": "user_profile",
+        "importance": 10,
+    })
+
+    # Build edges list
+    final_edges = [
+        {
+            "id": str(e.id),
+            "from_node_id": str(e.from_node_id),
+            "to_node_id": str(e.to_node_id),
+            "edge_type": e.edge_type.value,
+            "strength": e.strength,
+            "confidence": e.confidence,
+        }
+        for e in edges
+    ]
+
+    # Link preference memories to User Profile
+    for mem in all_memories:
+        if mem.memory_type == MemoryType.PREFERENCE:
+            final_edges.append({
+                "id": f"pref_{mem.id}",
+                "from_node_id": user_node_id,
+                "to_node_id": str(mem.id),
+                "edge_type": "preference_of",
+                "strength": 0.9,
+                "confidence": 1.0,
             })
 
     return {
-        "edges": [
-            {
-                "id": str(e.id),
-                "from_node_id": str(e.from_node_id),
-                "to_node_id": str(e.to_node_id),
-                "edge_type": e.edge_type.value,
-                "strength": e.strength,
-                "confidence": e.confidence,
-            }
-            for e in edges
-        ],
+        "edges": final_edges,
         "nodes": nodes,
+    }
+
+
+# =============================================================================
+# Entity Navigation Endpoints (On-Demand D+B)
+# =============================================================================
+
+@router.get("/memories/{memory_id}/entities")
+async def get_memory_entities(
+    memory_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get entity hubs linked to a specific memory.
+    
+    Used for on-demand entity display in the sidebar when a memory is selected.
+    """
+    db = await get_database()
+    
+    query = """
+        SELECT 
+            eh.id,
+            eh.entity_name,
+            eh.display_name,
+            eh.hub_type,
+            eh.category,
+            mel.strength,
+            mel.is_primary,
+            (SELECT COUNT(*) FROM memory_entity_links 
+             WHERE entity_id = eh.id) as related_count
+        FROM memory_entity_links mel
+        JOIN entity_hubs eh ON eh.id = mel.entity_id
+        WHERE mel.memory_id = $1 AND mel.user_id = $2
+        ORDER BY mel.is_primary DESC, mel.strength DESC
+    """
+    
+    rows = await db.fetch(query, memory_id, user.id)
+    
+    return {
+        "memory_id": str(memory_id),
+        "entities": [
+            {
+                "id": str(row["id"]),
+                "name": row["display_name"] or row["entity_name"],
+                "type": row["hub_type"],
+                "category": row["category"],
+                "strength": float(row["strength"]),
+                "is_primary": row["is_primary"],
+                "related_memory_count": row["related_count"],
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.get("/entities/{entity_id}/memories")
+async def get_entity_memories(
+    entity_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """Get memories linked to an entity hub (cross-domain navigation).
+    
+    Used when user clicks on an entity badge to explore related memories
+    across different domains.
+    """
+    db = await get_database()
+    
+    # First get the entity info
+    entity_query = """
+        SELECT entity_name, display_name, hub_type, category
+        FROM entity_hubs
+        WHERE id = $1 AND user_id = $2
+    """
+    entity = await db.fetchrow(entity_query, entity_id, user.id)
+    
+    if not entity:
+        raise HTTPException(status_code=404, detail="Entity hub not found")
+    
+    # Get linked memories with their domains
+    memories_query = """
+        SELECT 
+            m.id,
+            m.content,
+            m.memory_type,
+            m.importance,
+            m.domain,
+            m.category,
+            mel.strength,
+            mel.is_primary
+        FROM memory_entity_links mel
+        JOIN memories m ON m.id = mel.memory_id
+        WHERE mel.entity_id = $1 AND mel.user_id = $2
+          AND m.status = 'active'
+        ORDER BY mel.is_primary DESC, mel.strength DESC
+        LIMIT $3
+    """
+    
+    rows = await db.fetch(memories_query, entity_id, user.id, limit)
+    
+    # Group by domain for easier frontend display
+    by_domain: dict[str, list] = {}
+    for row in rows:
+        domain = row["domain"] or "Uncategorized"
+        if domain not in by_domain:
+            by_domain[domain] = []
+        by_domain[domain].append({
+            "id": str(row["id"]),
+            "content_preview": row["content"][:100],
+            "memory_type": row["memory_type"],
+            "category": row["category"],
+            "strength": float(row["strength"]),
+            "is_primary": row["is_primary"],
+        })
+    
+    return {
+        "entity": {
+            "id": str(entity_id),
+            "name": entity["display_name"] or entity["entity_name"],
+            "type": entity["hub_type"],
+            "category": entity["category"],
+        },
+        "total_memories": len(rows),
+        "by_domain": by_domain,
+        "memory_ids": [str(row["id"]) for row in rows],  # For graph highlighting
     }
 
 

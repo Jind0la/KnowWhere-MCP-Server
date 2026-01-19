@@ -5,6 +5,7 @@ Processes conversation transcripts and extracts structured memories.
 Handles duplicate detection, conflict resolution, and knowledge graph building.
 """
 
+import asyncio
 import time
 from datetime import datetime
 from typing import Any
@@ -25,6 +26,8 @@ from src.models.consolidation import (
     ConsolidationStatus,
     DuplicateGroup,
 )
+from src.services.entity_hub_service import EntityHubService, get_entity_hub_service
+from src.models.entity_hub import HubType, ExtractedEntity
 from src.models.memory import Memory, MemorySource, MemoryType
 from src.services.embedding import EmbeddingService, get_embedding_service
 from src.services.llm import LLMService, get_llm_service
@@ -66,6 +69,7 @@ class ConsolidationEngine:
         self._embedding_service = embedding_service
         self._entity_extractor = entity_extractor
         self._knowledge_graph = knowledge_graph
+        self._entity_hub_service = None
         
         # Thresholds from settings
         self.duplicate_threshold = self.settings.consolidation_duplicate_threshold
@@ -98,6 +102,11 @@ class ConsolidationEngine:
             self._knowledge_graph = await get_knowledge_graph()
         return self._knowledge_graph
     
+    async def _get_entity_hub_service(self) -> EntityHubService:
+        if self._entity_hub_service is None:
+            self._entity_hub_service = await get_entity_hub_service()
+        return self._entity_hub_service
+    
     async def consolidate(
         self,
         user_id: UUID,
@@ -116,14 +125,13 @@ class ConsolidationEngine:
             ConsolidationResult with all processing details
         """
         start_time = time.time()
-        consolidation_id = uuid4()
-        
         logger.info(
-            "Starting consolidation",
-            consolidation_id=str(consolidation_id),
+            "ENGINE: Starting consolidation",
             user_id=str(user_id),
-            transcript_length=len(session_transcript),
+            conversation_id=conversation_id,
         )
+        # Initialize result object early to capture consolidation_id and initial state
+        result = self._empty_result(user_id, conversation_id, len(session_transcript))
         
         try:
             # Step 1: Extract claims
@@ -132,9 +140,14 @@ class ConsolidationEngine:
             
             if not claims:
                 logger.warning("No claims extracted from transcript")
-                return self._empty_result(user_id, consolidation_id, len(session_transcript))
+                # Update result status and return
+                result.status = ConsolidationStatus.COMPLETED
+                result.processing_time_ms = int((time.time() - start_time) * 1000)
+                await self._save_history(result) # Save history for empty result
+                return result
             
             logger.info("Claims extracted", count=len(claims))
+            result.claims_extracted = len(claims)
             
             # Step 2: Generate embeddings
             embedding_service = await self._get_embedding()
@@ -143,12 +156,14 @@ class ConsolidationEngine:
             
             # Step 3: Find duplicates
             duplicates = await self._find_duplicates(claims, embeddings)
+            result.merged_count = sum(len(d.claims) - 1 for d in duplicates)
             
             # Step 4: Find conflicts
             conflicts = await self._find_conflicts(claims, embeddings)
             
             # Step 5: Resolve conflicts
             resolutions = await self._resolve_conflicts(conflicts)
+            result.conflicts_resolved = len(resolutions)
             
             # Step 6: Build final claim list (merged duplicates, resolved conflicts)
             final_claims = self._build_final_claims(claims, duplicates, resolutions)
@@ -168,6 +183,16 @@ class ConsolidationEngine:
                 # Assign results back
                 for claim, entities in zip(claims_needing_entities, entity_results):
                     claim.entities = entities
+
+            # Step 7.5: Classify content (Semantic Space)
+            logger.info("Classifying claims for Semantic Spine...")
+            llm = await self._get_llm()
+            classification_tasks = [llm.classify_content(c.claim) for c in final_claims]
+            classifications = await asyncio.gather(*classification_tasks)
+            
+            for claim, cls in zip(final_claims, classifications):
+                claim.domain = cls["domain"]
+                claim.category = cls["category"]
 
             # Step 8: Create memories (parallel batch processing)
             memory_processor = MemoryProcessor()
@@ -189,11 +214,13 @@ class ConsolidationEngine:
                     "content": claim.claim,
                     "memory_type": memory_type,
                     "entities": claim.entities,
+                    "domain": claim.domain,
+                    "category": claim.category,
                     "confidence": claim.confidence,
                     "source": MemorySource.CONSOLIDATION,
                     "source_id": conversation_id,
                     "metadata": {
-                        "consolidation_id": str(consolidation_id),
+                        "consolidation_id": str(result.consolidation_id),
                         "claim_type": claim.claim_type,
                         "source_in_transcript": claim.source,
                     },
@@ -226,17 +253,41 @@ class ConsolidationEngine:
                     )
                     created_memories.extend(batch_memories)
             
+            result.new_memories_count = len(created_memories)
+            result.new_memory_ids = [m.id for m in created_memories]
+
+            # Step 8.5: Link memories to Entity Hubs (Zettelkasten)
+            logger.info("Linking memories to Entity Hubs...")
+            eh_service = await self._get_entity_hub_service()
+            
+            # Process linking in parallel for better performance
+            link_tasks = []
+            for memory in created_memories:
+                # Convert string entities to ExtractedEntity for linking if we want to reuse them
+                # OR just let the service re-extract for better Zettelkasten classification
+                extracted_entities = [
+                    ExtractedEntity(name=e, type=HubType.CONCEPT, confidence=0.8)
+                    for e in memory.entities
+                ]
+                link_tasks.append(eh_service.link_memory_to_entities(memory, extracted_entities))
+            
+            if link_tasks:
+                await asyncio.gather(*link_tasks)
+
             # Step 9: Build knowledge graph
             kg = await self._get_knowledge_graph()
             
             # Collect all entities and map to memories
             all_entities = set()
-            entity_to_memory: dict[str, UUID] = {}
+            entity_to_memory: dict[str, list[UUID]] = {}
             
             for memory in created_memories:
                 for entity in memory.entities:
-                    all_entities.add(entity)
-                    entity_to_memory[entity] = memory.id
+                    entity_lower = entity.lower().strip()
+                    all_entities.add(entity_lower)
+                    if entity_lower not in entity_to_memory:
+                        entity_to_memory[entity_lower] = []
+                    entity_to_memory[entity_lower].append(memory.id)
             
             # Infer relationships
             relationships = await llm.infer_relationships(final_claims, list(all_entities))
@@ -247,60 +298,47 @@ class ConsolidationEngine:
                 relationships=relationships,
                 entity_to_memory=entity_to_memory,
             )
+            result.edges_created = len(edges)
             
             # Step 10: Detect patterns
             patterns = await llm.detect_patterns(final_claims)
+            result.patterns_detected = patterns
+            result.key_entities = list(all_entities)[:20]
             
             # Calculate timing
-            processing_time_ms = int((time.time() - start_time) * 1000)
-            
-            # Create result
-            result = ConsolidationResult(
-                consolidation_id=consolidation_id,
-                user_id=user_id,
-                session_transcript_length=len(session_transcript),
-                claims_extracted=len(claims),
-                new_memories_count=len(created_memories),
-                new_memory_ids=[m.id for m in created_memories],
-                merged_count=sum(len(d.claims) - 1 for d in duplicates),
-                conflicts_resolved=len(resolutions),
-                edges_created=len(edges),
-                patterns_detected=patterns,
-                key_entities=list(all_entities)[:20],
-                processing_time_ms=processing_time_ms,
-                status=ConsolidationStatus.COMPLETED,
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+            result.status = ConsolidationStatus.COMPLETED
+        
+            logger.info(
+                "ENGINE: Consolidation finished successfully",
+                consolidation_id=str(result.consolidation_id),
+                memories=result.new_memories_count,
             )
             
             # Save history
-            await self._save_history(result, conversation_id)
-            
-            logger.info(
-                "Consolidation completed",
-                consolidation_id=str(consolidation_id),
-                memories_created=len(created_memories),
-                edges_created=len(edges),
-                processing_time_ms=processing_time_ms,
-            )
+            await self._save_history(result)
             
             return result
             
         except Exception as e:
+            import traceback
+            error_details = f"{str(e)}\n{traceback.format_exc()}"
             logger.error(
                 "Consolidation failed",
-                consolidation_id=str(consolidation_id),
-                error=str(e),
+                consolidation_id=str(result.consolidation_id),
+                error=error_details,
             )
             
-            return ConsolidationResult(
-                consolidation_id=consolidation_id,
-                user_id=user_id,
-                session_transcript_length=len(session_transcript),
-                claims_extracted=0,
-                new_memories_count=0,
-                processing_time_ms=int((time.time() - start_time) * 1000),
-                status=ConsolidationStatus.FAILED,
-                error_message=str(e),
-            )
+            # Update result with failure info
+            result.status = ConsolidationStatus.FAILED
+            result.error_message = error_details
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Try to save failure to history
+            # Save history even on failure
+            await self._save_history(result)
+            
+            return result
     
     async def _find_duplicates(
         self,
@@ -441,7 +479,6 @@ class ConsolidationEngine:
     async def _save_history(
         self,
         result: ConsolidationResult,
-        conversation_id: str | None,
     ) -> None:
         """Save consolidation history to database."""
         db = await self._get_db()
@@ -450,8 +487,8 @@ class ConsolidationEngine:
         history = ConsolidationHistory(
             id=result.consolidation_id,
             user_id=result.user_id,
-            consolidation_date=datetime.utcnow().date(),
-            conversation_id=conversation_id,
+            consolidation_date=datetime.utcnow(),
+            conversation_id=result.conversation_id,
             session_transcript_length=result.session_transcript_length,
             claims_extracted=result.claims_extracted,
             new_memories_created=result.new_memories_count,
@@ -470,18 +507,25 @@ class ConsolidationEngine:
     def _empty_result(
         self,
         user_id: UUID,
-        consolidation_id: UUID,
-        transcript_length: int,
+        conversation_id: str | None = None,
+        session_transcript_length: int = 0,
     ) -> ConsolidationResult:
-        """Create an empty result when no claims were extracted."""
+        """Create an empty result object."""
         return ConsolidationResult(
-            consolidation_id=consolidation_id,
+            consolidation_id=uuid4(),
             user_id=user_id,
-            session_transcript_length=transcript_length,
+            conversation_id=conversation_id,
+            session_transcript_length=session_transcript_length,
             claims_extracted=0,
             new_memories_count=0,
+            new_memory_ids=[],
+            merged_count=0,
+            conflicts_resolved=0,
+            edges_created=0,
+            patterns_detected=[],
+            key_entities=[],
             processing_time_ms=0,
-            status=ConsolidationStatus.COMPLETED,
+            status=ConsolidationStatus.PENDING,
         )
 
 

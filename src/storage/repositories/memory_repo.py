@@ -51,8 +51,9 @@ class MemoryRepository:
         query = """
             INSERT INTO memories (
                 user_id, content, memory_type, embedding, entities,
-                importance, confidence, source, source_id, metadata
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                importance, confidence, source, source_id, metadata,
+                domain, category
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
         """
         
@@ -68,6 +69,8 @@ class MemoryRepository:
             memory.source.value,
             memory.source_id,
             json.dumps(memory.metadata) if memory.metadata else None,
+            memory.domain,
+            memory.category,
         )
         
         logger.info("Memory created", memory_id=row["id"], user_id=memory.user_id)
@@ -360,6 +363,36 @@ class MemoryRepository:
             "total_accesses": row["total_accesses"] or 0,
         }
 
+    async def get_unique_domains_categories(self, user_id: UUID) -> dict[str, list[str]]:
+        """
+        Get all unique domains and categories for usage in LLM context.
+        Returns a dict with 'domains' and 'categories' lists.
+        """
+        query_domains = """
+            SELECT DISTINCT domain 
+            FROM memories 
+            WHERE user_id = $1 AND domain IS NOT NULL AND status = 'active'
+            ORDER BY domain
+            LIMIT 50
+        """
+        
+        query_categories = """
+            SELECT DISTINCT category 
+            FROM memories 
+            WHERE user_id = $1 AND category IS NOT NULL AND status = 'active'
+            ORDER BY category
+            LIMIT 100
+        """
+        
+        domains = await self.db.fetch(query_domains, user_id)
+        categories = await self.db.fetch(query_categories, user_id)
+        
+        return {
+            "domains": [r["domain"] for r in domains if r["domain"]],
+            "categories": [r["category"] for r in categories if r["category"]]
+        }
+
+
     async def get_memories_by_type(
         self,
         user_id: UUID,
@@ -428,6 +461,8 @@ class MemoryRepository:
             updated_at=row["updated_at"],
             deleted_at=row["deleted_at"],
             metadata=metadata,
+            domain=row.get("domain"),
+            category=row.get("category"),
         )
     
     def _row_to_memory_with_similarity(self, row: Any) -> MemoryWithSimilarity:

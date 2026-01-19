@@ -45,11 +45,13 @@ class LLMService:
     def anthropic(self) -> AsyncAnthropic:
         """Get or create Anthropic client."""
         if self._anthropic_client is None:
+            import httpx
             api_key = self.settings.anthropic_api_key
             if api_key is None:
                 raise ValueError("ANTHROPIC_API_KEY not configured")
             self._anthropic_client = AsyncAnthropic(
-                api_key=api_key.get_secret_value()
+                api_key=api_key.get_secret_value(),
+                http_client=httpx.AsyncClient()
             )
         return self._anthropic_client
     
@@ -57,8 +59,10 @@ class LLMService:
     def openai(self) -> AsyncOpenAI:
         """Get or create OpenAI client."""
         if self._openai_client is None:
+            import httpx
             self._openai_client = AsyncOpenAI(
-                api_key=self.settings.openai_api_key.get_secret_value()
+                api_key=self.settings.openai_api_key.get_secret_value(),
+                http_client=httpx.AsyncClient()
             )
         return self._openai_client
     
@@ -500,6 +504,65 @@ JSON:"""
             return []
 
 
+    async def classify_content(
+        self, 
+        text: str, 
+        existing_domains: list[str] | None = None,
+        existing_categories: list[str] | None = None
+    ) -> dict[str, str | None]:
+        """
+        Classify text into Domain and Category with context awareness.
+        """
+        existing_domains_str = ", ".join(f'"{d}"' for d in (existing_domains or []))
+        existing_categories_str = ", ".join(f'"{c}"' for c in (existing_categories or []))
+        
+        system = """You are an expert Librarian and Knowledge Architect.
+Your goal is to organize memories into a "Zettelkasten"-like structure.
+
+RULES:
+1. EXISTING HUBS: Check the provided 'Existing Domains' and 'Existing Categories'.
+   - If the content fits an existing hub, USE IT.
+   - Do NOT create synonyms (e.g., if 'Frontend' exists, do not create 'UI' or 'Front-End').
+   
+2. NEW HUBS: Creates new categories ONLY if the content represents a distinctly new concept.
+   - Use concise, standard names (Title Case).
+   - e.g., "Quantum Computing", "Bioinformatics".
+
+3. HIERARCHY:
+   - DOMAIN: High-level scope (e.g. "Source Code", "Personal", "Knowwhere").
+     -> For personal facts/bio, use "Personal" or "Profile".
+   - CATEGORY: Specific topic/functional area (e.g. "Auth", "Database", "Goals").
+
+Return ONLY valid JSON."""
+
+        prompt = f"""Classify this memory.
+
+Existing Domains: [{existing_domains_str}]
+Existing Categories: [{existing_categories_str}]
+
+Content: "{text}"
+
+JSON Response ({{ "domain": "...", "category": "..." }}):"""
+        
+        response = await self.complete(prompt, system, max_tokens=256, temperature=0.1)
+        
+        try:
+            cleaned = response.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```")[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+            cleaned = cleaned.strip()
+            
+            result = json.loads(cleaned)
+            return {
+                "domain": result.get("domain"),
+                "category": result.get("category")
+            }
+        except json.JSONDecodeError:
+            return {"domain": None, "category": None}
+
+    
 # Global LLM service instance
 _llm_service: LLMService | None = None
 

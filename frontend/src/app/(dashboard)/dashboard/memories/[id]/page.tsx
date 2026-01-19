@@ -43,17 +43,50 @@ const memoryTypeDescriptions: Record<string, string> = {
   meta: "Meta-kognitives Wissen über das Lernen",
 };
 
+// Entity Hub type colors (D+B)
+const entityTypeColors: Record<string, string> = {
+  person: "border-red-500 text-red-600 bg-red-500/10",
+  place: "border-green-500 text-green-600 bg-green-500/10",
+  event: "border-yellow-500 text-yellow-600 bg-yellow-500/10",
+  recipe: "border-orange-500 text-orange-600 bg-orange-500/10",
+  concept: "border-purple-500 text-purple-600 bg-purple-500/10",
+  tech: "border-cyan-500 text-cyan-600 bg-cyan-500/10",
+  project: "border-blue-500 text-blue-600 bg-blue-500/10",
+  organization: "border-pink-500 text-pink-600 bg-pink-500/10",
+};
+
 export default function MemoryDetailPage() {
   const params = useParams();
   const router = useRouter();
   const [memory, setMemory] = useState<Memory | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Entity Hub state (D+B navigation)
+  const [entityHubs, setEntityHubs] = useState<Array<{
+    id: string;
+    name: string;
+    type: string;
+    related_memory_count: number;
+  }>>([]);
+  const [loadingEntities, setLoadingEntities] = useState(false);
+
   useEffect(() => {
     const loadMemory = async () => {
       try {
         const data = await api.getMemory(params.id as string);
         setMemory(data);
+
+        // Load Entity Hubs for this memory
+        setLoadingEntities(true);
+        try {
+          const entityData = await api.getMemoryEntities(params.id as string);
+          setEntityHubs(entityData.entities);
+        } catch {
+          // Entity hubs not available - that's ok
+          setEntityHubs([]);
+        } finally {
+          setLoadingEntities(false);
+        }
       } catch (err) {
         toast.error("Memory nicht gefunden");
         router.push("/dashboard/memories");
@@ -158,19 +191,41 @@ export default function MemoryDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Entities */}
-          {memory.entities.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Tag className="w-5 h-5" />
-                  Entities
-                </CardTitle>
-                <CardDescription>
-                  Erkannte Themen und Konzepte
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+          {/* Entity Hubs (D+B) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Tag className="w-5 h-5" />
+                Entity Hubs
+              </CardTitle>
+              <CardDescription>
+                Zettelkasten-Verbindungen zu verwandten Memories
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {loadingEntities ? (
+                <div className="text-sm text-muted-foreground">Lade Entities...</div>
+              ) : entityHubs.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {entityHubs.map((entity) => (
+                    <Link
+                      key={entity.id}
+                      href={`/dashboard/graph?entity=${entity.id}`}
+                    >
+                      <Badge
+                        variant="outline"
+                        className={`cursor-pointer hover:opacity-80 transition-opacity ${entityTypeColors[entity.type] || "border-gray-500 text-gray-600"}`}
+                      >
+                        {entity.name}
+                        <span className="ml-1.5 opacity-70 text-xs">
+                          ({entity.related_memory_count})
+                        </span>
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
+              ) : memory.entities.length > 0 ? (
+                // Fallback to old entities if no entity hubs
                 <div className="flex flex-wrap gap-2">
                   {memory.entities.map((entity) => (
                     <Badge key={entity} variant="secondary" className="text-sm">
@@ -178,9 +233,13 @@ export default function MemoryDetailPage() {
                     </Badge>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Keine Entities erkannt
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Related Memories (Placeholder) */}
           <Card>
@@ -253,6 +312,22 @@ export default function MemoryDetailPage() {
                   <span>{memory.access_count}</span>
                 </div>
               </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Domain</span>
+                <Badge variant="outline" className="border-amber-500/50 text-amber-600 bg-amber-500/5">
+                  {memory.domain || "-"}
+                </Badge>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Category</span>
+                <Badge variant="outline" className="border-blue-500/50 text-blue-600 bg-blue-500/5">
+                  {memory.category || "-"}
+                </Badge>
+              </div>
             </CardContent>
           </Card>
 
@@ -318,6 +393,6 @@ export default function MemoryDetailPage() {
           </Card>
         </div>
       </div>
-    </div>
+    </div >
   );
 }

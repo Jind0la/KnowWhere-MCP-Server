@@ -151,7 +151,7 @@ async def check_rate_limit_for_user(user_id: UUID) -> tuple[bool, dict]:
 # In production, set REQUIRE_AUTH=true in environment
 REQUIRE_AUTH = settings.debug is False
 # This is the test user created during development - matches memories in DB
-DEFAULT_USER_ID = UUID("9a5640d9-1cbb-4c14-aa26-674021a6127d")
+DEFAULT_USER_ID = UUID("21f38efd-0e43-4314-96f7-c4195fc8290c")
 
 # Read API key from environment (for MCP clients like Claude Desktop)
 import os
@@ -251,18 +251,36 @@ async def with_auth_and_audit(
             result = await operation_func(user_id=user_id, **kwargs)
             
             # Track accessed memory IDs if present in result
-            if hasattr(result, "memory_id"):
-                ctx.add_memory_id(result.memory_id)
-            elif hasattr(result, "memories"):
-                for mem in result.memories[:10]:  # Limit to first 10
-                    if hasattr(mem, "id"):
-                        ctx.add_memory_id(mem.id)
-            
-            return result.model_dump(mode="json")
+            try:
+                if hasattr(result, "memory_id") and result.memory_id:
+                    ctx.add_memory_id(result.memory_id)
+                elif hasattr(result, "memories") and result.memories:
+                    for mem in result.memories[:10]:  # Limit to first 10
+                        if hasattr(mem, "id"):
+                            ctx.add_memory_id(mem.id)
+            except Exception as audit_e:
+                logger.warning("Audit tracking failed", error=str(audit_e))
+
+            if hasattr(result, "model_dump"):
+                return result.model_dump(mode="json")
+            return result
             
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            logger.error(
+                f"TOOL FAILURE: {tool_name}", 
+                user_id=str(user_id), 
+                error=str(e),
+                trace=error_trace
+            )
             ctx.set_error(str(e))
-            raise
+            # Return error in the result so it shows up in client
+            return {
+                "status": "failed",
+                "error": str(e),
+                "traceback": error_trace
+            }
 
 
 # =============================================================================
@@ -280,28 +298,44 @@ async def mcp_remember(
     """
     💾 SPEICHERE wichtige Informationen über den User für zukünftige Gespräche.
 
-    ✅ WANN SPEICHERN:
-    - User teilt seinen Namen, Job, Standort → importance: 10, type: "semantic"
-    - User sagt "Ich bevorzuge X" / "Ich mag Y" → importance: 8, type: "preference"  
-    - User erklärt wie etwas funktioniert → importance: 6, type: "procedural"
-    - User erzählt von einem Ereignis → importance: 5, type: "episodic"
-    - User korrigiert frühere Information → importance: 9, type: passend
+    ⚠️ KRITISCH - WAS GENAU SPEICHERN:
+
+    📋 Bei LANGEN INHALTEN (Rezepte, Anleitungen, Code):
+       → VOLLSTÄNDIG speichern mit ALLEN Details, Zutaten, Schritten!
+       → NIEMALS nur eine Zusammenfassung speichern!
+
+    📌 Bei KURZEN FAKTEN (Name, Ort, Vorlieben):
+       → Kurze, prägnante Aussage OK
+
+    ✅ RICHTIGE BEISPIELE:
+    - Rezept: content="Lasagne Rezept für Sarah:\n\nZutaten:\n- 500g Hackfleisch\n- 2 Dosen Tomaten\n- Bechamel: 50g Butter, 50g Mehl, 500ml Milch\n\nZubereitung:\n1. Hackfleisch anbraten\n2. Tomaten dazu, 20 Min köcheln..."
+    - Fakt: content="User's name is Max, lives in Berlin"
+    - Vorliebe: content="User prefers Python over JavaScript for backend"
+
+    ❌ FALSCH (NIE SO MACHEN!):
+    - content="User wants to remember a lasagne recipe" ← Das ist KEINE Memory!
+    - content="User shared a recipe" ← Wo sind die Zutaten und Schritte?!
+
+    🎯 MEMORY TYPES:
+    - procedural: Rezepte, Anleitungen, Workflows → IMMER VOLLSTÄNDIG!
+    - semantic: Fakten (Name, Job, Ort) → Kurz OK
+    - preference: Vorlieben → Kurz OK  
+    - episodic: Ereignisse → Mit relevanten Details
+    - meta: Über das Lernen selbst
+
+    💡 GOLDENE REGEL: Wenn der User später fragt "Was war das Rezept?", 
+       muss die Memory ALLE Infos enthalten um die Frage zu beantworten!
 
     ❌ NICHT SPEICHERN:
     - Temporäre Infos ("Ich bin gerade müde")
     - Allgemeinwissen (Wikipedia-Fakten)
     - Einmalige Anfragen ohne Wiederholungswert
 
-    📝 BEISPIELE:
-    - "Ich heiße Max" → remember("User's name is Max", "semantic", importance=10)
-    - "Ich programmiere am liebsten in Python" → remember("User prefers Python", "preference", importance=8)
-    - "Ich arbeite bei Firma X in Berlin" → remember("User works at Firma X in Berlin", "semantic", importance=9)
-
     Args:
-        content: Was speichern (kurz, prägnant, auf Englisch für bessere Suche)
-        memory_type: episodic (Ereignis), semantic (Fakt), preference (Vorliebe), procedural (Anleitung), meta (über Wissen)
-        entities: Relevante Begriffe ["Python", "Berlin"] - werden auto-extrahiert wenn leer
-        importance: 1-10 (10=sehr wichtig wie Name, 5=normal, 1=unwichtig)
+        content: Der VOLLSTÄNDIGE Inhalt. Bei Rezepten/Anleitungen: ALLE Zutaten und Schritte!
+        memory_type: procedural | semantic | preference | episodic | meta
+        entities: Relevante Begriffe ["Lasagne", "Sarah"] - auto-extrahiert wenn leer
+        importance: 1-10 (10=Name, 8=Rezept/Anleitung, 5=normal)
     """
     user_id = get_user_id_from_context(metadata=metadata)
     
@@ -328,6 +362,10 @@ async def mcp_recall(
 ) -> dict[str, Any]:
     """
     🔍 **IMMER ZUERST NUTZEN** bei persönlichen Fragen über den User!
+
+    🔄 WICHTIGER WORKFLOW:
+    1. ZUERST recall() um zu prüfen ob Info bereits existiert
+    2. Nur DANN remember() wenn wirklich NEUE Info (nicht doppelt speichern!)
 
     ⚡ TRIGGER - Rufe recall() auf bei:
     ┌─────────────────────────────────────────────────────────────┐
@@ -448,6 +486,10 @@ async def mcp_consolidate_session(
             session_date=session_date,
             conversation_id=conversation_id,
         )
+        
+        # Log failure if engine reported it
+        if result.status == "failed":
+            logger.error("Engine reported failure in tool", error=result.error_message)
 
         await report_progress(total_steps, "Consolidation complete")
         return result
@@ -941,6 +983,7 @@ async def user_entities(user_id: str) -> dict[str, Any]:
 def main():
     """Main entry point for CLI."""
     import os
+    from fastapi.middleware.cors import CORSMiddleware
     
     # Determine transport mode: use SSE for Docker/HTTP, stdio for CLI
     transport = os.getenv("MCP_TRANSPORT", "stdio")
@@ -960,7 +1003,61 @@ def main():
         # Use 0.0.0.0 to allow external connections in Docker
         host = os.getenv("HOST", "0.0.0.0")
         port = int(os.getenv("PORT", "8000"))
-        mcp.run(transport="sse", host=host, port=port)
+        
+        # Create combined FastAPI app with REST API + MCP
+        from fastapi import FastAPI
+        from src.api.web import router as api_router
+        
+        # Create main FastAPI app
+        combined_app = FastAPI(
+            title="Knowwhere API",
+            description="Combined MCP + REST API Server",
+            version="1.0.0",
+        )
+        
+        # CORS configuration for frontend
+        origins = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            os.getenv("FRONTEND_URL", ""),
+        ]
+        origins = [o for o in origins if o]  # Remove empty strings
+        
+        # Add CORS middleware
+        combined_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        
+        # Include the REST API router
+        combined_app.include_router(api_router)
+        
+        # Add health check endpoint
+        @combined_app.get("/health")
+        async def health_check():
+            return {"status": "healthy", "service": "knowwhere-mcp"}
+        
+        # Mount the MCP server as a sub-application
+        # The MCP endpoints will be available at /mcp/sse and /mcp/messages/
+        mcp_http_app = mcp.http_app()
+        combined_app.mount("/mcp", mcp_http_app)
+        
+        # Also mount at root for backwards compatibility with MCP clients
+        # This makes /sse and /messages/ work directly
+        combined_app.mount("/", mcp_http_app)
+        
+        logger.info(
+            "Starting combined MCP + REST API server",
+            mcp_endpoints=["/sse", "/messages/", "/mcp/sse", "/mcp/messages/"],
+            api_prefix="/api",
+            health_endpoint="/health",
+        )
+        
+        # Run the combined app with uvicorn
+        uvicorn.run(combined_app, host=host, port=port)
     else:
         # Default stdio transport for CLI/direct integration
         mcp.run()

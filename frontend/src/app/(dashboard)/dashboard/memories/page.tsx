@@ -48,6 +48,16 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Memory, type MemoryWithSimilarity } from "@/lib/api";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const memoryTypeColors: Record<string, string> = {
   episodic: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -69,8 +79,10 @@ export default function MemoriesPage() {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const loadMemories = useCallback(async () => {
+    // ... existing loadMemories implementation ...
     setLoading(true);
     try {
       const params: {
@@ -103,6 +115,7 @@ export default function MemoriesPage() {
   }, [page, typeFilter, importanceFilter]);
 
   const searchMemories = useCallback(async () => {
+    // ... existing searchMemories implementation ...
     if (!searchQuery.trim()) {
       setSearchMode(false);
       loadMemories();
@@ -132,6 +145,7 @@ export default function MemoriesPage() {
     }
   }, [searchQuery, typeFilter, importanceFilter, loadMemories]);
 
+  // ... useEffect ...
   useEffect(() => {
     if (!searchMode) {
       loadMemories();
@@ -145,8 +159,6 @@ export default function MemoriesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Memory wirklich löschen?")) return;
-
     try {
       await api.deleteMemory(id);
       toast.success("Memory gelöscht");
@@ -170,7 +182,6 @@ export default function MemoriesPage() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Memories</h1>
@@ -186,7 +197,6 @@ export default function MemoriesPage() {
         </Link>
       </div>
 
-      {/* Search and Filters */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col lg:flex-row gap-4">
@@ -262,7 +272,6 @@ export default function MemoriesPage() {
         </CardContent>
       </Card>
 
-      {/* Memories Table */}
       <Card>
         <CardContent className="p-0">
           {loading ? (
@@ -284,6 +293,7 @@ export default function MemoriesPage() {
                 <TableRow>
                   <TableHead className="w-[100px]">Typ</TableHead>
                   <TableHead>Inhalt</TableHead>
+                  <TableHead>Domain / Category</TableHead>
                   <TableHead className="w-[80px]">Quelle</TableHead>
                   <TableHead className="w-[90px]">Wichtigkeit</TableHead>
                   <TableHead className="w-[80px]">Konfidenz</TableHead>
@@ -314,7 +324,7 @@ export default function MemoriesPage() {
                         <p className="line-clamp-2 text-sm">{memory.content}</p>
                         {memory.entities && memory.entities.length > 0 && (
                           <div className="flex gap-1 mt-1 flex-wrap">
-                            {memory.entities.slice(0, 3).map((entity) => (
+                            {Array.from(new Set(memory.entities)).slice(0, 3).map((entity) => (
                               <Badge
                                 key={entity}
                                 variant="secondary"
@@ -323,14 +333,32 @@ export default function MemoriesPage() {
                                 {entity}
                               </Badge>
                             ))}
-                            {memory.entities.length > 3 && (
+                            {new Set(memory.entities).size > 3 && (
                               <Badge variant="secondary" className="text-xs">
-                                +{memory.entities.length - 3}
+                                +{new Set(memory.entities).size - 3}
                               </Badge>
                             )}
                           </div>
                         )}
+
                       </Link>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        {memory.domain && (
+                          <Badge variant="outline" className="text-xs w-fit border-amber-500/50 text-amber-600 bg-amber-500/5">
+                            {memory.domain}
+                          </Badge>
+                        )}
+                        {memory.category && (
+                          <Badge variant="outline" className="text-xs w-fit border-blue-500/50 text-blue-600 bg-blue-500/5">
+                            {memory.category}
+                          </Badge>
+                        )}
+                        {!memory.domain && !memory.category && (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs capitalize">
@@ -410,7 +438,7 @@ export default function MemoriesPage() {
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onClick={() => handleDelete(memory.id)}
+                            onSelect={() => setDeleteId(memory.id)}
                             className="text-destructive focus:text-destructive"
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
@@ -427,7 +455,6 @@ export default function MemoriesPage() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
       {!searchMode && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -455,7 +482,31 @@ export default function MemoriesPage() {
             </Button>
           </div>
         </div>
-      )}
+      )
+      }
+
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Memory wirklich löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteId) handleDelete(deleteId);
+                setDeleteId(null);
+              }}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              Löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

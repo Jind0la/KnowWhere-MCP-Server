@@ -155,8 +155,7 @@ ALTER TABLE document_chunks FORCE ROW LEVEL SECURITY;
 ALTER TABLE api_keys FORCE ROW LEVEL SECURITY;
 
 -- Grant service role bypass
-GRANT BYPASSRLS ON TABLE memories TO knowwhere_service;
-GRANT BYPASSRLS ON TABLE knowledge_edges TO knowwhere_service;
+ALTER ROLE knowwhere_service BYPASSRLS;
 
 -- =============================================================================
 -- HELPER FUNCTION TO SET USER CONTEXT

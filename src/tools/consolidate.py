@@ -98,6 +98,7 @@ async def consolidate_session(
         patterns_detected=result.patterns_detected,
         processing_time_ms=result.processing_time_ms,
         status=result.status.value,
+        error_message=result.error_message,
     )
 
 

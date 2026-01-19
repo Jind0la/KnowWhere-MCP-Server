@@ -19,10 +19,12 @@ services:
       - PORT=8000
       - DEBUG=true
       - LOG_LEVEL=DEBUG
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/knowwhere
+      - MCP_TRANSPORT=sse
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - SUPABASE_URL=${SUPABASE_URL:-http://localhost:54321}
       - SUPABASE_KEY=${SUPABASE_KEY:-dev-key}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}

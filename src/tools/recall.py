@@ -2,6 +2,7 @@
 MCP Tool: recall
 
 Search and retrieve memories from Knowwhere.
+Now uses graph-enhanced RecallEngine for intelligent retrieval.
 """
 
 import time
@@ -11,9 +12,7 @@ import structlog
 
 from src.models.memory import MemoryType
 from src.models.requests import DateRange, RecallFilters, RecallInput, RecallOutput
-from src.services.embedding import get_embedding_service
-from src.storage.database import get_database
-from src.storage.repositories.memory_repo import MemoryRepository
+from src.engine.recall_engine import RecallEngine, get_recall_engine
 
 logger = structlog.get_logger(__name__)
 
@@ -27,10 +26,13 @@ async def recall(
     include_sampling: bool = False,
 ) -> RecallOutput:
     """
-    Search and retrieve memories using semantic similarity.
+    Search and retrieve memories using graph-enhanced recall.
     
-    This tool performs vector similarity search to find memories
-    that are semantically related to the query.
+    This tool uses the RecallEngine which provides:
+    - Vector similarity search (primary retrieval)
+    - Evolution awareness (filters out superseded memories)
+    - Entity expansion (finds related memories via shared entities)
+    - Recency boost (recently accessed memories are prioritized)
     
     Args:
         user_id: The user whose memories to search
@@ -41,8 +43,6 @@ async def recall(
     Returns:
         RecallOutput with matching memories and similarity scores
     """
-    start_time = time.time()
-    
     logger.info(
         "Recall tool called",
         user_id=str(user_id),
@@ -59,58 +59,36 @@ async def recall(
     # Parse filters
     parsed_filters = _parse_filters(filters) if filters else None
     
-    # Generate query embedding
-    embedding_service = await get_embedding_service()
-    query_embedding = await embedding_service.embed(query)
+    # Use the graph-enhanced RecallEngine
+    engine = await get_recall_engine()
     
-    # Search memories
-    db = await get_database()
-    repo = MemoryRepository(db)
-    
-    # Get memories with potential sampling
-    base_limit = limit
-    if include_sampling and limit > 10:
-        # For sampling, get more results initially to allow better selection
-        base_limit = min(limit * 2, 100)
-
-    memories = await repo.search_similar(
-        embedding=query_embedding,
+    result = await engine.recall(
         user_id=user_id,
-        limit=base_limit,
-        memory_type=parsed_filters.memory_type if parsed_filters else None,
-        min_importance=parsed_filters.importance_min if parsed_filters else None,
-        entity=parsed_filters.entity if parsed_filters else None,
-        date_range=parsed_filters.date_range.value if parsed_filters and parsed_filters.date_range else None,
+        query=query,
+        filters=parsed_filters,
+        limit=limit,
+        offset=offset,
+        # Graph-enhanced options (all enabled by default)
+        respect_evolution=True,
+        expand_entities=True,
+        include_related=include_sampling,  # Include related if sampling mode
+        apply_recency_boost=True,
     )
-
-    # Apply offset and limit for pagination/sampling
-    if offset > 0:
-        memories = memories[offset:]
-
-    memories = memories[:limit]
-    
-    # Update access timestamps for returned memories
-    for memory in memories:
-        await repo._update_access(memory.id)
-    
-    # Calculate search time
-    search_time_ms = int((time.time() - start_time) * 1000)
-    
-    # Get total count (without limit)
-    total_available = await repo.count_by_user(user_id)
     
     logger.info(
         "Recall completed",
-        results_count=len(memories),
-        search_time_ms=search_time_ms,
+        results_count=result.count,
+        evolution_filtered=result.evolution_filtered_count,
+        entity_expanded=result.entity_expanded_count,
+        search_time_ms=result.search_time_ms,
     )
     
     return RecallOutput(
         query=query,
-        count=len(memories),
-        total_available=total_available,
-        memories=memories,
-        search_time_ms=search_time_ms,
+        count=result.count,
+        total_available=result.total_available,
+        memories=result.memories,
+        search_time_ms=result.search_time_ms,
     )
 
 
@@ -141,7 +119,7 @@ def _parse_filters(filters: dict) -> RecallFilters:
 # Tool specification for MCP
 RECALL_SPEC = {
     "name": "recall",
-    "description": "Search and retrieve memories from Knowwhere using semantic similarity. Use this to find relevant context about the user.",
+    "description": "Search and retrieve memories from Knowwhere using graph-enhanced recall. Respects memory evolution (newer versions preferred), expands via shared entities, and learns from usage patterns.",
     "inputSchema": {
         "type": "object",
         "properties": {

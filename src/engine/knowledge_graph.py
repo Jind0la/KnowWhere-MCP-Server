@@ -30,6 +30,15 @@ class KnowledgeGraphManager:
     - Pattern detection
     """
     
+    # Entities that are too generic and would create too much noise in the graph
+    ENTITY_BLACKLIST = {
+        "python", "javascript", "typescript", "src", "code", "readme", 
+        "file", "folder", "directory", "knowwhere", "mcp", "ai", "user",
+        "system", "application", "project", "data", "base", "main",
+        "test", "tests", "api", "backend", "frontend", "docker", "yaml",
+        "json", "markdown", "md", "txt", "env", "requirement", "requirements"
+    }
+    
     def __init__(self, db: Database | None = None):
         self._db = db
         self._edge_repo: EdgeRepository | None = None
@@ -144,33 +153,53 @@ class KnowledgeGraphManager:
         edges_to_create: list[EdgeCreate] = []
         
         for rel in relationships:
-            from_entity = rel.get("from_entity", "")
-            to_entity = rel.get("to_entity", "")
+            from_entity = rel.get("from_entity", "").lower().strip()
+            to_entity = rel.get("to_entity", "").lower().strip()
+            
+            # Skip blacklisted entities
+            if from_entity in self.ENTITY_BLACKLIST or to_entity in self.ENTITY_BLACKLIST:
+                continue
+                
             rel_type = rel.get("relationship_type", "related_to")
             confidence = float(rel.get("confidence", 0.7))
             
-            # Get memory IDs for entities
-            from_memory_id = entity_to_memory.get(from_entity)
-            to_memory_id = entity_to_memory.get(to_entity)
+            # Get memory IDs for entities (now handling lists of IDs)
+            from_memory_ids = entity_to_memory.get(from_entity, [])
+            to_memory_ids = entity_to_memory.get(to_entity, [])
             
-            if not from_memory_id or not to_memory_id:
-                continue
-            
-            if from_memory_id == to_memory_id:
+            # If not lists (backward compatibility), wrap them
+            if isinstance(from_memory_ids, UUID):
+                from_memory_ids = [from_memory_ids]
+            if isinstance(to_memory_ids, UUID):
+                to_memory_ids = [to_memory_ids]
+                
+            if not from_memory_ids or not to_memory_ids:
                 continue
             
             edge_type = type_mapping.get(rel_type, EdgeType.RELATED_TO)
             
-            edges_to_create.append(EdgeCreate(
-                user_id=user_id,
-                from_node_id=from_memory_id,
-                to_node_id=to_memory_id,
-                edge_type=edge_type,
-                strength=confidence,
-                confidence=confidence,
-                reason=f"Inferred from entities: {from_entity} -> {to_entity}",
-                causality=edge_type in (EdgeType.LEADS_TO, EdgeType.EVOLVES_INTO),
-            ))
+            # Create edges between all combinations (up to a limit to prevent explosion)
+            count = 0
+            for f_mid in from_memory_ids:
+                for t_mid in to_memory_ids:
+                    if f_mid == t_mid:
+                        continue
+                    
+                    edges_to_create.append(EdgeCreate(
+                        user_id=user_id,
+                        from_node_id=f_mid,
+                        to_node_id=t_mid,
+                        edge_type=edge_type,
+                        strength=confidence,
+                        confidence=confidence,
+                        reason=f"Inferred relationship between entities '{from_entity}' and '{to_entity}'",
+                        causality=edge_type in (EdgeType.LEADS_TO, EdgeType.EVOLVES_INTO),
+                    ))
+                    count += 1
+                    if count >= 10: # Limit per relationship pair
+                        break
+                if count >= 10:
+                    break
         
         if edges_to_create:
             edges = await repo.create_many(edges_to_create)
@@ -403,6 +432,62 @@ class KnowledgeGraphManager:
         count = await repo.delete_for_memory(memory_id, user_id)
         logger.info("Edges deleted for memory", memory_id=str(memory_id), count=count)
         return count
+    
+    async def get_obsolete_memory_ids(
+        self,
+        memory_ids: list[UUID],
+        user_id: UUID,
+    ) -> set[UUID]:
+        """
+        Given a list of memory IDs, return which ones are obsolete.
+        
+        A memory is obsolete if it has an outgoing EVOLVES_INTO edge,
+        meaning it has been superseded by a newer version.
+        """
+        if not memory_ids:
+            return set()
+        
+        db = await self._get_db()
+        
+        query = """
+            SELECT DISTINCT from_node_id
+            FROM knowledge_edges
+            WHERE user_id = $1
+              AND from_node_id = ANY($2)
+              AND edge_type = $3
+        """
+        
+        rows = await db.fetch(
+            query,
+            user_id,
+            list(memory_ids),
+            EdgeType.EVOLVES_INTO.value,
+        )
+        
+        return {row["from_node_id"] for row in rows}
+    
+    async def get_superseding_memory(
+        self,
+        memory_id: UUID,
+        user_id: UUID,
+    ) -> UUID | None:
+        """
+        Get the memory that supersedes this one, if any.
+        
+        Follows EVOLVES_INTO edges to find the newer version.
+        """
+        repo = await self._get_edge_repo()
+        
+        edges = await repo.get_edges_from_memory(
+            memory_id=memory_id,
+            user_id=user_id,
+            edge_type=EdgeType.EVOLVES_INTO,
+        )
+        
+        if not edges:
+            return None
+        
+        return edges[0].to_node_id
     
     def _determine_edge_type(
         self,

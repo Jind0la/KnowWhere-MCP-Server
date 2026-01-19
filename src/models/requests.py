@@ -217,6 +217,14 @@ class ConsolidateOutput(BaseModel):
         default="completed",
         description="Operation status"
     )
+    error_message: str | None = Field(
+        default=None,
+        description="Error message if failed"
+    )
+    traceback: str | None = Field(
+        default=None,
+        description="Full stack trace if failed"
+    )
 
 
 # =============================================================================

@@ -132,6 +132,15 @@ class MemoryProcessor:
         if importance is None:
             importance = self._calculate_importance(content, memory_type, entities)
 
+        # Classify content (Semantic Space)
+        from src.services.llm import get_llm_service
+        try:
+            llm_service = await get_llm_service()
+            classification = await llm_service.classify_content(content)
+        except Exception as e:
+            logger.warning("Classification failed", error=str(e))
+            classification = {"domain": None, "category": None}
+
         # Create memory
         memory_create = MemoryCreate(
             user_id=user_id,
@@ -139,6 +148,8 @@ class MemoryProcessor:
             memory_type=memory_type,
             embedding=embedding,
             entities=entities or [],
+            domain=classification["domain"],
+            category=classification["category"],
             importance=importance,
             confidence=confidence,
             source=source,
@@ -232,6 +243,8 @@ class MemoryProcessor:
                 memory_type=memory_type,
                 embedding=all_embeddings[i],
                 entities=data.get("entities", []),
+                domain=data.get("domain"),
+                category=data.get("category"),
                 importance=importance,
                 confidence=data.get("confidence", 0.8),
                 source=data.get("source", MemorySource.CONVERSATION),
@@ -255,41 +268,6 @@ class MemoryProcessor:
         )
 
         return memories
-        
-        # Calculate importance if not provided
-        if importance is None:
-            importance = self._calculate_importance(content, memory_type, entities)
-        
-        # Create memory
-        memory_create = MemoryCreate(
-            user_id=user_id,
-            content=content,
-            memory_type=memory_type,
-            embedding=embedding,
-            entities=entities or [],
-            importance=importance,
-            confidence=confidence,
-            source=source,
-            source_id=source_id,
-            metadata=metadata or {},
-        )
-        
-        # Persist
-        repo = await self._get_memory_repo()
-        memory = await repo.create(memory_create)
-        
-        # Invalidate user cache
-        cache = await self._get_cache()
-        await cache.invalidate_user_cache(str(user_id))
-        
-        logger.info(
-            "Memory created",
-            memory_id=str(memory.id),
-            memory_type=memory_type.value,
-            importance=importance,
-        )
-        
-        return memory
     
     async def process_episodic(
         self,

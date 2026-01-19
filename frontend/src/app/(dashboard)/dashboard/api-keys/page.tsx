@@ -109,12 +109,12 @@ export default function ApiKeysPage() {
       setCreatedKey(result.key);
       setCreateDialogOpen(false);
       setNewKeyDialogOpen(true);
-      
+
       // Reset form
       setKeyName("");
       setSelectedScopes(["memories:read", "memories:write"]);
       setExpiresIn("never");
-      
+
       // Reload keys
       loadKeys();
     } catch (err) {
@@ -384,14 +384,14 @@ export default function ApiKeysPage() {
                     <TableCell className="text-sm text-muted-foreground">
                       {key.last_used_at
                         ? new Date(key.last_used_at).toLocaleDateString(
-                            "de-DE",
-                            {
-                              day: "numeric",
-                              month: "short",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            }
-                          )
+                          "de-DE",
+                          {
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )
                         : "Nie"}
                     </TableCell>
                     <TableCell>
@@ -421,26 +421,42 @@ export default function ApiKeysPage() {
           <CardDescription>So verwendest du deinen API Key</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <Label className="text-sm font-medium">HTTP Header</Label>
-            <pre className="mt-2 p-3 bg-muted rounded-lg text-sm overflow-x-auto">
-              <code>Authorization: Bearer YOUR_API_KEY</code>
-            </pre>
-          </div>
-          <div>
-            <Label className="text-sm font-medium">MCP Config (claude_desktop_config.json)</Label>
-            <pre className="mt-2 p-3 bg-muted rounded-lg text-sm overflow-x-auto">
-              <code>{`{
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-4">
+              <Label className="text-sm font-medium">Claude Desktop (Stdio)</Label>
+              <pre className="p-3 bg-muted rounded-lg text-sm overflow-x-auto">
+                <code>{`{
   "mcpServers": {
     "knowwhere": {
-      "command": "npx",
-      "args": ["-y", "knowwhere-mcp"],
+      "command": "/opt/anaconda3/bin/python",
+      "args": ["-m", "src.main"],
+      "cwd": "${process.env.NEXT_PUBLIC_APP_DIR || "/path/to/KW_Mem_MCP_Server"}",
       "env": {
-        "KNOWWHERE_API_KEY": "YOUR_API_KEY"
+        "KNOWWHERE_API_KEY": "YOUR_API_KEY",
+        "PYTHONPATH": "${process.env.NEXT_PUBLIC_APP_DIR || "/path/to/KW_Mem_MCP_Server"}"
       }
     }
   }
 }`}</code>
+              </pre>
+            </div>
+            <div className="space-y-4">
+              <Label className="text-sm font-medium">Cursor / SSE Clients</Label>
+              <pre className="p-3 bg-muted rounded-lg text-sm overflow-x-auto">
+                <code>{`{
+  "mcpServers": {
+    "knowwhere": {
+      "url": "http://localhost:8000/sse"
+    }
+  }
+}`}</code>
+              </pre>
+            </div>
+          </div>
+          <div className="pt-2">
+            <Label className="text-sm font-medium">HTTP Header (API)</Label>
+            <pre className="mt-2 p-3 bg-muted rounded-lg text-sm overflow-x-auto">
+              <code>Authorization: Bearer YOUR_API_KEY</code>
             </pre>
           </div>
         </CardContent>

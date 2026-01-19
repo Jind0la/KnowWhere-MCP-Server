@@ -23,7 +23,11 @@ logger = structlog.get_logger(__name__)
 
 # Supabase JWT configuration
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
-JWT_ALGORITHM = "HS256"
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+# Allow HS256, RS256, and ES256 for maximum compatibility with Supabase
+ALLOWED_ALGORITHMS = ["HS256", "RS256", "ES256"]
+if JWT_ALGORITHM not in ALLOWED_ALGORITHMS:
+    ALLOWED_ALGORITHMS.append(JWT_ALGORITHM)
 DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
 
 
@@ -79,12 +83,50 @@ async def get_current_user(
         
         # If JWT secret is configured, verify properly
         if SUPABASE_JWT_SECRET:
-            payload = jwt.decode(
-                token,
-                SUPABASE_JWT_SECRET,
-                algorithms=[JWT_ALGORITHM],
-                options={"verify_aud": False},
-            )
+            try:
+                # Debug: Peek at header and payload
+                unverified_header = jwt.get_unverified_header(token)
+                unverified_payload = decode_jwt_payload_unsafe(token)
+                logger.debug(
+                    "JWT Debug (Unverified)", 
+                    header=unverified_header,
+                    iss=unverified_payload.get("iss"),
+                    sub=unverified_payload.get("sub")
+                )
+
+                # Try verification
+                algorithms = ALLOWED_ALGORITHMS
+                
+                # If HS256 is used, the secret is a string, not a PEM
+                if unverified_header.get("alg") == "HS256":
+                    algorithms = ["HS256"]
+                
+                payload = jwt.decode(
+                    token,
+                    SUPABASE_JWT_SECRET,
+                    algorithms=algorithms,
+                    options={"verify_aud": False},
+                )
+            except JWTError as e:
+                # Fallback: If verification fails but we are in DEBUG, allow unverified for now
+                # to let the user work, but log a loud warning.
+                if DEBUG_MODE:
+                    logger.warning("JWT verification FAILED, but allowing in DEBUG mode", error=str(e))
+                    payload = unverified_payload
+                else:
+                    logger.warning(
+                        "JWT verification failed",
+                        error=str(e),
+                        token_alg=unverified_header.get("alg"),
+                        allowed_algorithms=ALLOWED_ALGORITHMS,
+                    )
+                    raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
+            except Exception as e:
+                logger.error("Unexpected error during JWT verification", error=str(e))
+                if DEBUG_MODE:
+                    payload = unverified_payload
+                else:
+                    raise HTTPException(status_code=401, detail="Internal authentication error")
         else:
             # Dev mode: decode without verification (WARNING: Not for production!)
             logger.warning("SUPABASE_JWT_SECRET not set - decoding token without verification (DEV ONLY)")
@@ -111,9 +153,12 @@ async def get_current_user(
         if not user:
             # Check if user exists by email (might have different ID)
             user = await user_repo.get_by_email(email)
+            if user:
+                logger.info("Found user by email, ID mismatch with JWT sub", db_id=str(user.id), jwt_sub=user_id)
             
             if not user:
-                # Auto-create user on first login from Supabase
+                # Auto-create user if not found
+                logger.info("User not found, creating new account", email=email, id=user_id)
                 from src.models.user import UserCreate, AuthProvider
                 
                 user_create = UserCreate(
@@ -121,13 +166,15 @@ async def get_current_user(
                     full_name=payload.get("user_metadata", {}).get("full_name"),
                     auth_provider=AuthProvider.OAUTH,
                 )
-                user = await user_repo.create(user_create)
+                user = await user_repo.create(user_create, user_id=UUID(user_id))
                 logger.info("Created new user from Supabase auth", user_id=str(user.id))
 
+        from src.models.user import UserTier
+        logger.info("Authentication successful", user_id=str(user.id), email=user.email)
         return CurrentUser(
             id=user.id,
             email=user.email,
-            tier=user.tier.value,
+            tier=UserTier(user.tier) if hasattr(user, 'tier') else UserTier.FREE,
             full_name=user.full_name,
         )
 

@@ -506,4 +506,19 @@ MIT License - siehe [LICENSE](LICENSE) für Details.
 
 ---
 
+## 🎨 Semantic Intelligence (v1.2.0)
+
+### 🌌 Semantic Galaxy View
+Die Knowledge Graph Visualisierung wurde komplett überarbeitet:
+- **Semantic Spine**: Hierarchische Cluster nach Domain -> Category -> Entities
+- **Granular Code Classification**: Spezielles Verständnis für Source Code (API vs. UI vs. Core)
+- **Interactive Exploration**: Expandierbare Cluster für bessere Übersicht
+
+### 🧹 Data Quality Engine
+- **Active Deduplication**: Erkennt und entfernt semantische Duplikate (>95% Ähnlichkeit)
+- **Auto-Classification**: LLM-gestützte Kategorisierung aller Memories
+- **Sprach-agnostisch**: Versteht Duplikate über Sprachgrenzen hinweg (DE/EN)
+
+---
+
 **Made with ❤️ for persistent AI memory**
