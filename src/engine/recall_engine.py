@@ -102,6 +102,7 @@ class RecallEngine:
         filters: RecallFilters | None = None,
         limit: int = 10,
         offset: int = 0,
+        relevance_threshold: float = 0.0,
         # Graph-enhanced options
         respect_evolution: bool = True,
         expand_entities: bool = True,

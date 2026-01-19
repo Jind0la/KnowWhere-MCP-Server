@@ -23,6 +23,7 @@ async def recall(
     filters: dict | None = None,
     limit: int = 10,
     offset: int = 0,
+    relevance_threshold: float = 0.0,
     include_sampling: bool = False,
 ) -> RecallOutput:
     """
@@ -160,6 +161,13 @@ RECALL_SPEC = {
                 "maximum": 50,
                 "default": 10,
                 "description": "Maximum number of results",
+            },
+            "relevance_threshold": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "default": 0.0,
+                "description": "Minimum similarity score required (0.0 to 1.0)",
             },
         },
         "required": ["query"],
