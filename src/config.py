@@ -32,9 +32,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Supabase / PostgreSQL
-    supabase_url: str
-    supabase_key: SecretStr
-    database_url: SecretStr
+    supabase_url: str | None = None
+    supabase_key: SecretStr | None = None
+    database_url: SecretStr | None = None
     db_pool_min_size: int = 5
     db_pool_max_size: int = 20
 
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     cache_ttl_preferences: int = 86400  # 24 hours
 
     # OpenAI (Embeddings)
-    openai_api_key: SecretStr
+    openai_api_key: SecretStr | None = None
     embedding_model: str = "text-embedding-3-large"
     embedding_dimensions: int = 1408
 
