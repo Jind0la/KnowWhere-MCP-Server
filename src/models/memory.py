@@ -124,10 +124,10 @@ class Memory(MemoryBase):
     
     id: UUID = Field(default_factory=uuid4, description="Unique identifier")
     user_id: UUID = Field(..., description="Owner of the memory")
-    embedding: list[float] = Field(
-        ...,
+    embedding: list[float] | None = Field(
+        default=None,
         description="Vector embedding (1408 dimensions)",
-        exclude=True,  # Never include embeddings in JSON responses - saves ~180KB per memory
+        exclude=True,  # Never include embeddings in JSON responses
     )
     
     # Status tracking
