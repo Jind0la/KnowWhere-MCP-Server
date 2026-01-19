@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/select";
 import { api, type ApiKey } from "@/lib/api";
 import { toast } from "sonner";
+import { ConfigGenerator } from "@/components/ConfigGenerator";
 
 const availableScopes = [
   { value: "memories:read", label: "Memories lesen" },
@@ -244,23 +245,24 @@ export default function ApiKeysPage() {
         </Dialog>
       </div>
 
-      {/* New Key Dialog */}
+      {/* New Key Dialog with Config Generator */}
       <Dialog open={newKeyDialogOpen} onOpenChange={setNewKeyDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Check className="w-5 h-5 text-green-500" />
-              API Key erstellt
+              API Key erstellt – Jetzt verbinden!
             </DialogTitle>
             <DialogDescription>
-              Kopiere deinen API Key jetzt. Er wird nur einmal angezeigt!
+              Wähle deinen AI-Client und kopiere die fertige Konfiguration.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {/* API Key Display */}
             <div className="p-4 bg-muted rounded-lg space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Dein API Key</Label>
+                <Label className="text-sm font-medium">Dein API Key</Label>
                 <div className="flex gap-2">
                   <Button
                     variant="ghost"
@@ -282,7 +284,7 @@ export default function ApiKeysPage() {
                   </Button>
                 </div>
               </div>
-              <code className="block text-sm break-all">
+              <code className="block text-sm break-all font-mono">
                 {showKey ? createdKey : "••••••••••••••••••••••••••••••••"}
               </code>
             </div>
@@ -290,23 +292,22 @@ export default function ApiKeysPage() {
             <div className="flex items-start gap-2 p-3 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 rounded-lg">
               <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
               <p className="text-sm">
-                Speichere diesen Key sicher ab. Du wirst ihn nicht mehr sehen
-                können!
+                Speichere diesen Key sicher ab. Er wird nur einmal angezeigt!
               </p>
             </div>
-          </div>
 
-          <DialogFooter>
-            <Button
-              onClick={() => {
-                setNewKeyDialogOpen(false);
-                setCreatedKey(null);
-                setShowKey(false);
-              }}
-            >
-              Verstanden
-            </Button>
-          </DialogFooter>
+            {/* Config Generator */}
+            {createdKey && (
+              <ConfigGenerator
+                apiKey={createdKey}
+                onComplete={() => {
+                  setNewKeyDialogOpen(false);
+                  setCreatedKey(null);
+                  setShowKey(false);
+                }}
+              />
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -414,51 +415,18 @@ export default function ApiKeysPage() {
         </CardContent>
       </Card>
 
-      {/* Usage Info */}
+      {/* Interactive Config Generator */}
       <Card>
         <CardHeader>
-          <CardTitle>Verwendung</CardTitle>
-          <CardDescription>So verwendest du deinen API Key</CardDescription>
+          <CardTitle>🚀 Schnell-Setup</CardTitle>
+          <CardDescription>
+            Wähle deinen AI-Client und kopiere die fertige Konfiguration
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-4">
-              <Label className="text-sm font-medium">Claude Desktop (Stdio)</Label>
-              <pre className="p-3 bg-muted rounded-lg text-sm overflow-x-auto">
-                <code>{`{
-  "mcpServers": {
-    "knowwhere": {
-      "command": "/opt/anaconda3/bin/python",
-      "args": ["-m", "src.main"],
-      "cwd": "${process.env.NEXT_PUBLIC_APP_DIR || "/path/to/KW_Mem_MCP_Server"}",
-      "env": {
-        "KNOWWHERE_API_KEY": "YOUR_API_KEY",
-        "PYTHONPATH": "${process.env.NEXT_PUBLIC_APP_DIR || "/path/to/KW_Mem_MCP_Server"}"
-      }
-    }
-  }
-}`}</code>
-              </pre>
-            </div>
-            <div className="space-y-4">
-              <Label className="text-sm font-medium">Cursor / SSE Clients</Label>
-              <pre className="p-3 bg-muted rounded-lg text-sm overflow-x-auto">
-                <code>{`{
-  "mcpServers": {
-    "knowwhere": {
-      "url": "http://localhost:8000/sse"
-    }
-  }
-}`}</code>
-              </pre>
-            </div>
-          </div>
-          <div className="pt-2">
-            <Label className="text-sm font-medium">HTTP Header (API)</Label>
-            <pre className="mt-2 p-3 bg-muted rounded-lg text-sm overflow-x-auto">
-              <code>Authorization: Bearer YOUR_API_KEY</code>
-            </pre>
-          </div>
+        <CardContent>
+          <ConfigGenerator
+            apiKey="YOUR_API_KEY"
+          />
         </CardContent>
       </Card>
     </div>
