@@ -4,7 +4,7 @@ Knowledge Graph Manager
 Manages relationships between memories in the knowledge graph.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -508,7 +508,7 @@ class KnowledgeGraphManager:
     
     def _get_date_filter(self, time_window: str) -> datetime | None:
         """Convert time window string to datetime filter."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)  # Use timezone-aware datetime
         windows = {
             "last_7_days": now - timedelta(days=7),
             "last_30_days": now - timedelta(days=30),
