@@ -126,7 +126,8 @@ class Memory(MemoryBase):
     user_id: UUID = Field(..., description="Owner of the memory")
     embedding: list[float] = Field(
         ...,
-        description="Vector embedding (1408 dimensions)"
+        description="Vector embedding (1408 dimensions)",
+        exclude=True,  # Never include embeddings in JSON responses - saves ~180KB per memory
     )
     
     # Status tracking
