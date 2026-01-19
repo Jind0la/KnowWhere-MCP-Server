@@ -180,6 +180,48 @@ async def complete_onboarding(user: CurrentUser = Depends(get_current_user)):
 
 
 # =============================================================================
+# Connection Test Endpoints
+# =============================================================================
+
+@router.get("/connection/test")
+async def test_connection(user: CurrentUser = Depends(get_current_user)):
+    """
+    Test if the connection to KnowWhere is working.
+    
+    This endpoint validates:
+    - Authentication (JWT or API Key)
+    - User exists in database
+    - Basic connectivity
+    
+    Returns success if all checks pass.
+    """
+    db = await get_database()
+    user_repo = UserRepository(db)
+    
+    # Verify user exists
+    db_user = await user_repo.get_by_id(user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get memory count for extra validation
+    memory_count = await db.fetchval(
+        "SELECT COUNT(*) FROM memories WHERE user_id = $1 AND status = 'active'",
+        user.id
+    )
+    
+    logger.info("Connection test successful", user_id=str(user.id))
+    
+    return {
+        "success": True,
+        "user_id": str(user.id),
+        "email": user.email,
+        "tier": user.tier,
+        "memory_count": memory_count or 0,
+        "message": "KnowWhere ist verbunden und funktioniert! 🎉",
+    }
+
+
+# =============================================================================
 # Memory Endpoints
 # =============================================================================
 

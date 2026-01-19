@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Copy, Check, Monitor, Terminal, Cloud, Eye, EyeOff, Key } from "lucide-react";
+import { Copy, Check, Monitor, Terminal, Cloud, Eye, EyeOff, Key, Loader2, Wifi, WifiOff, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 // =============================================================================
 // Types
@@ -629,8 +630,123 @@ export function ConfigGenerator({
                             mit dem tatsächlichen Pfad zu deinem geklonten Repository.
                         </div>
                     )}
+
+                    {/* Connection Test */}
+                    <ConnectionTestButton />
                 </CardContent>
             </Card>
+        </div>
+    );
+}
+
+// =============================================================================
+// Connection Test Button Component
+// =============================================================================
+
+function ConnectionTestButton() {
+    const [testing, setTesting] = useState(false);
+    const [testResult, setTestResult] = useState<{
+        success: boolean;
+        message: string;
+        memory_count?: number;
+    } | null>(null);
+
+    const handleTest = async () => {
+        setTesting(true);
+        setTestResult(null);
+
+        try {
+            const result = await api.testConnection();
+            setTestResult({
+                success: true,
+                message: result.message,
+                memory_count: result.memory_count,
+            });
+            toast.success("Verbindung erfolgreich!");
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : "Verbindungsfehler";
+            setTestResult({
+                success: false,
+                message: errorMessage,
+            });
+            toast.error("Verbindungstest fehlgeschlagen", {
+                description: errorMessage,
+            });
+        } finally {
+            setTesting(false);
+        }
+    };
+
+    return (
+        <div className="pt-2 border-t">
+            <div className="flex items-center justify-between gap-4">
+                <div className="text-sm">
+                    <div className="font-medium">Verbindung testen</div>
+                    <div className="text-muted-foreground text-xs">
+                        Prüfe ob dein Client verbunden ist
+                    </div>
+                </div>
+                <Button
+                    variant={testResult?.success ? "outline" : "default"}
+                    size="sm"
+                    onClick={handleTest}
+                    disabled={testing}
+                    className={cn(
+                        "gap-2 min-w-[140px]",
+                        testResult?.success && "border-green-500 text-green-600"
+                    )}
+                >
+                    {testing ? (
+                        <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Teste...
+                        </>
+                    ) : testResult?.success ? (
+                        <>
+                            <CheckCircle2 className="w-4 h-4" />
+                            Verbunden!
+                        </>
+                    ) : testResult && !testResult.success ? (
+                        <>
+                            <WifiOff className="w-4 h-4" />
+                            Erneut testen
+                        </>
+                    ) : (
+                        <>
+                            <Wifi className="w-4 h-4" />
+                            Test starten
+                        </>
+                    )}
+                </Button>
+            </div>
+
+            {/* Result display */}
+            {testResult && (
+                <div
+                    className={cn(
+                        "mt-3 p-3 rounded-lg text-sm",
+                        testResult.success
+                            ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                            : "bg-red-500/10 text-red-700 dark:text-red-400"
+                    )}
+                >
+                    {testResult.success ? (
+                        <div className="space-y-1">
+                            <div className="font-medium">{testResult.message}</div>
+                            {testResult.memory_count !== undefined && (
+                                <div className="text-xs opacity-80">
+                                    Du hast {testResult.memory_count} Memories gespeichert.
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div>
+                            <div className="font-medium">Verbindung fehlgeschlagen</div>
+                            <div className="text-xs opacity-80 mt-1">{testResult.message}</div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

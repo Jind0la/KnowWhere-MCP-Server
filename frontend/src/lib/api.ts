@@ -278,6 +278,18 @@ class ApiClient {
       }
     );
   }
+
+  // Connection Test
+  async testConnection() {
+    return this.fetch<{
+      success: boolean;
+      user_id: string;
+      email: string;
+      tier: string;
+      memory_count: number;
+      message: string;
+    }>("/api/connection/test");
+  }
 }
 
 export const api = new ApiClient();
