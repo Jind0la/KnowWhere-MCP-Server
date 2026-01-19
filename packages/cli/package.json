@@ -1,0 +1,46 @@
+{
+    "name": "@knowwhere/cli",
+    "version": "1.0.0",
+    "description": "CLI tool to set up KnowWhere MCP integration with your AI client",
+    "bin": {
+        "knowwhere": "./dist/index.js"
+    },
+    "main": "./dist/index.js",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsx src/index.ts",
+        "prepublishOnly": "npm run build"
+    },
+    "keywords": [
+        "knowwhere",
+        "mcp",
+        "ai",
+        "memory",
+        "cli",
+        "cursor",
+        "claude"
+    ],
+    "author": "KnowWhere",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Jind0la/KnowWhere-MCP-Server"
+    },
+    "dependencies": {
+        "chalk": "^5.3.0",
+        "inquirer": "^9.2.12"
+    },
+    "devDependencies": {
+        "@types/inquirer": "^9.0.7",
+        "@types/node": "^20.10.0",
+        "tsx": "^4.7.0",
+        "typescript": "^5.3.0"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "files": [
+        "dist"
+    ]
+}
