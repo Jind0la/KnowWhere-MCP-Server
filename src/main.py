@@ -1019,8 +1019,12 @@ def main():
         origins = [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
-            os.getenv("FRONTEND_URL", ""),
         ]
+        if settings.frontend_url:
+            # Support comma-separated URLs
+            extra_origins = [o.strip() for o in settings.frontend_url.split(",") if o.strip()]
+            origins.extend(extra_origins)
+        
         origins = [o for o in origins if o]  # Remove empty strings
         
         # Add CORS middleware

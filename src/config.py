@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
     log_level: str = "INFO"
+    frontend_url: str = ""
 
     # Supabase / PostgreSQL
     supabase_url: str | None = None
