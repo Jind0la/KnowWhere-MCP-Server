@@ -1,0 +1,70 @@
+
+> frontend@0.1.0 lint
+> eslint
+
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/dashboard/graph/page.tsx
+   24:36  warning  'Memory' is defined but never used                                                                                                                                         @typescript-eslint/no-unused-vars
+  167:15  warning  'network' is assigned a value but never used                                                                                                                               @typescript-eslint/no-unused-vars
+  254:20  error    Unexpected any. Specify a different type                                                                                                                                   @typescript-eslint/no-explicit-any
+  350:20  error    Unexpected any. Specify a different type                                                                                                                                   @typescript-eslint/no-explicit-any
+  453:13  warning  'changed' is assigned a value but never used                                                                                                                               @typescript-eslint/no-unused-vars
+  479:6   warning  React Hook useEffect has missing dependencies: 'memoryEntities.length', 'router', 'selectedNode', and 'toggleCluster'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/dashboard/memories/[id]/edit/page.tsx
+  26:20  warning  'Memory' is defined but never used  @typescript-eslint/no-unused-vars
+  77:16  warning  'err' is defined but never used     @typescript-eslint/no-unused-vars
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/dashboard/memories/[id]/page.tsx
+   90:16  warning  'err' is defined but never used  @typescript-eslint/no-unused-vars
+  111:14  warning  'err' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/dashboard/memories/new/page.tsx
+  10:10  warning  'Label' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/dashboard/memories/page.tsx
+  21:3  warning  'CardDescription' is defined but never used  @typescript-eslint/no-unused-vars
+  22:3  warning  'CardHeader' is defined but never used       @typescript-eslint/no-unused-vars
+  23:3  warning  'CardTitle' is defined but never used        @typescript-eslint/no-unused-vars
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/dashboard/page.tsx
+  289:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  291:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/dashboard/settings/page.tsx
+  8:3  warning  'Bell' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/layout.tsx
+  61:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/app/(dashboard)/layout.tsx:61:5
+  59 |
+  60 |   useEffect(() => {
+> 61 |     setMounted(true);
+     |     ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  62 |     const supabase = createClient();
+  63 |
+  64 |     const getUser = async () => {  react-hooks/set-state-in-effect
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/components/ui/sidebar.tsx
+  611:26  error  Error: Cannot call impure function during render
+
+`Math.random` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/Users/nimarfranklinmac/Dev/KW_Mem_MCP_Server/frontend/src/components/ui/sidebar.tsx:611:26
+  609 |   // Random width between 50 to 90%.
+  610 |   const width = React.useMemo(() => {
+> 611 |     return `${Math.floor(Math.random() * 40) + 50}%`
+      |                          ^^^^^^^^^^^^^ Cannot call impure function
+  612 |   }, [])
+  613 |
+  614 |   return (  react-hooks/purity
+
+✖ 19 problems (6 errors, 13 warnings)
+

@@ -141,6 +141,45 @@ async def get_me(user: CurrentUser = Depends(get_current_user)):
 
 
 # =============================================================================
+# Onboarding Endpoints
+# =============================================================================
+
+@router.get("/onboarding/status")
+async def get_onboarding_status(user: CurrentUser = Depends(get_current_user)):
+    """Check if user has completed onboarding."""
+    db = await get_database()
+    user_repo = UserRepository(db)
+    
+    settings = await user_repo.get_settings(user.id)
+    
+    return {
+        "completed": settings.get("onboarding_completed", False),
+        "completed_at": settings.get("onboarding_completed_at"),
+    }
+
+
+@router.post("/onboarding/complete")
+async def complete_onboarding(user: CurrentUser = Depends(get_current_user)):
+    """Mark onboarding as completed for the current user."""
+    from datetime import datetime
+    
+    db = await get_database()
+    user_repo = UserRepository(db)
+    
+    settings = await user_repo.update_settings(user.id, {
+        "onboarding_completed": True,
+        "onboarding_completed_at": datetime.utcnow().isoformat(),
+    })
+    
+    logger.info("Onboarding completed", user_id=str(user.id))
+    
+    return {
+        "success": True,
+        "completed_at": settings.get("onboarding_completed_at") if settings else None,
+    }
+
+
+# =============================================================================
 # Memory Endpoints
 # =============================================================================
 

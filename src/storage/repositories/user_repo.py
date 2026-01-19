@@ -182,6 +182,33 @@ class UserRepository:
             logger.info("User soft-deleted", user_id=user_id)
         return result is not None
     
+    async def update_settings(self, user_id: UUID, settings_update: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Update user settings (JSONB merge).
+        
+        This merges the new settings with existing ones (Postgres || operator).
+        """
+        import json
+        query = """
+            UPDATE users 
+            SET settings = COALESCE(settings, '{}'::jsonb) || $2::jsonb
+            WHERE id = $1
+            RETURNING settings
+        """
+        result = await self.db.fetchval(query, user_id, json.dumps(settings_update))
+        if result:
+            return result if isinstance(result, dict) else json.loads(result)
+        return None
+    
+    async def get_settings(self, user_id: UUID) -> dict[str, Any]:
+        """Get user settings."""
+        import json
+        query = "SELECT settings FROM users WHERE id = $1"
+        result = await self.db.fetchval(query, user_id)
+        if result:
+            return result if isinstance(result, dict) else json.loads(result)
+        return {}
+    
     async def hard_delete(self, user_id: UUID) -> bool:
         """
         Permanently delete a user and all their data.

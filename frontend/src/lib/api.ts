@@ -262,6 +262,22 @@ class ApiClient {
       method: "DELETE",
     });
   }
+
+  // Onboarding
+  async getOnboardingStatus() {
+    return this.fetch<{ completed: boolean; completed_at: string | null }>(
+      "/api/onboarding/status"
+    );
+  }
+
+  async completeOnboarding() {
+    return this.fetch<{ success: boolean; completed_at: string | null }>(
+      "/api/onboarding/complete",
+      {
+        method: "POST",
+      }
+    );
+  }
 }
 
 export const api = new ApiClient();

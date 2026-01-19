@@ -29,6 +29,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
+import { OnboardingWizard } from "@/components/OnboardingWizard";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
@@ -56,6 +58,8 @@ export default function DashboardLayout({
   const [user, setUser] = useState<User | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -79,12 +83,38 @@ export default function DashboardLayout({
     return () => subscription.unsubscribe();
   }, []);
 
+  // Check onboarding status once user is loaded
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      if (!user || onboardingChecked) return;
+
+      try {
+        const status = await api.getOnboardingStatus();
+        if (!status.completed) {
+          setShowOnboarding(true);
+        }
+      } catch (err) {
+        // If error (e.g., no session yet), don't show onboarding
+        console.error("Failed to check onboarding status:", err);
+      } finally {
+        setOnboardingChecked(true);
+      }
+    };
+
+    checkOnboarding();
+  }, [user, onboardingChecked]);
+
   const handleSignOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
     toast.success("Erfolgreich abgemeldet");
     router.push("/");
     router.refresh();
+  };
+
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    toast.success("Willkommen bei KnowWhere! 🎉");
   };
 
   const getInitials = (email: string, name?: string) => {
@@ -101,6 +131,12 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Onboarding Wizard */}
+      <OnboardingWizard
+        open={showOnboarding}
+        onComplete={handleOnboardingComplete}
+      />
+
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
         <div
