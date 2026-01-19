@@ -338,7 +338,7 @@ class RecallEngine:
             if memory:
                 # Wrap as MemoryWithSimilarity with lower similarity score
                 mem_with_sim = MemoryWithSimilarity(
-                    **memory.model_dump(),
+                    **memory.model_dump(exclude={'embedding'}),
                     similarity=0.5,  # Lower score for entity-expanded results
                 )
                 additional_memories.append(mem_with_sim)
@@ -389,7 +389,7 @@ class RecallEngine:
             memory = await memory_repo.get_by_id(memory_id, user_id)
             if memory:
                 mem_with_sim = MemoryWithSimilarity(
-                    **memory.model_dump(),
+                    **memory.model_dump(exclude={'embedding'}),
                     similarity=0.4,  # Lower score for graph-related results
                 )
                 related_memories.append(mem_with_sim)
@@ -443,7 +443,7 @@ class RecallEngine:
             
             # Create new object with boosted similarity
             boosted_memory = MemoryWithSimilarity(
-                **{k: v for k, v in memory.model_dump().items() if k != 'similarity'},
+                **{k: v for k, v in memory.model_dump(exclude={'embedding'}).items() if k != 'similarity'},
                 similarity=boosted_similarity,
             )
             boosted.append(boosted_memory)
