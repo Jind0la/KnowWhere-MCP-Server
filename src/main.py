@@ -1027,10 +1027,11 @@ def main():
         
         origins = [o for o in origins if o]  # Remove empty strings
         
-        # Add CORS middleware
+        # Add CORS middleware with Vercel preview support
         combined_app.add_middleware(
             CORSMiddleware,
             allow_origins=origins,
+            allow_origin_regex=r"https://know-where-mcp-server-.*\.vercel\.app",
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],

@@ -92,12 +92,30 @@ origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     os.getenv("FRONTEND_URL", ""),
+    # Additional allowed origins from env (comma-separated)
+    *[url.strip() for url in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if url.strip()],
 ]
 origins = [o for o in origins if o]  # Remove empty strings
 
+# Vercel preview deployments pattern matching
+import re
+VERCEL_PREVIEW_PATTERN = re.compile(
+    r"^https://know-where-mcp-server-.*\.vercel\.app$"
+)
+
+def cors_allow_origin(origin: str) -> bool:
+    """Check if origin is allowed (includes Vercel preview deployments)."""
+    if origin in origins:
+        return True
+    if VERCEL_PREVIEW_PATTERN.match(origin):
+        return True
+    return False
+
+# Use allow_origin_regex for Vercel preview deployments
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://know-where-mcp-server-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
