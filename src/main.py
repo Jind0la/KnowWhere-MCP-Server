@@ -357,11 +357,14 @@ async def mcp_recall(
     filters: dict | None = None,
     limit: int = 5,
     offset: int = 0,
+    relevance_threshold: float = 0.0,
     include_sampling: bool = False,
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     🔍 **IMMER ZUERST NUTZEN** bei persönlichen Fragen über den User!
+    
+    Verwendet semantische Suche um relevante Memories zu finden.
 
     🔄 WICHTIGER WORKFLOW:
     1. ZUERST recall() um zu prüfen ob Info bereits existiert
@@ -409,12 +412,28 @@ async def mcp_recall(
         include_sampling=include_sampling,
     )
     
-    # Truncate memory content to prevent context overflow
+    # Truncate content AND remove embeddings (Compact Response Mode)
     MAX_CONTENT_LENGTH = 500
     if "memories" in result:
+        filtered_memories = []
         for memory in result["memories"]:
+            # 1. Relevance Threshold Filter
+            score = memory.get("similarity", 0.0)
+            if score < relevance_threshold:
+                continue
+                
+            # 2. Manual Embedding Removal (Guaranteeing Compact Response)
+            if "embedding" in memory:
+                del memory["embedding"]
+                
+            # 3. Content Truncation
             if "content" in memory and len(memory["content"]) > MAX_CONTENT_LENGTH:
                 memory["content"] = memory["content"][:MAX_CONTENT_LENGTH] + "... [truncated]"
+            
+            filtered_memories.append(memory)
+        
+        result["memories"] = filtered_memories
+        result["count"] = len(filtered_memories)
     
     return result
 
