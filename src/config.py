@@ -243,9 +243,9 @@ async def init_container() -> DependencyContainer:
     from src.engine.entity_extractor import EntityExtractor, get_entity_extractor
     from src.engine.knowledge_graph import KnowledgeGraphManager, get_knowledge_graph
 
-    # Register async context managers
-    container.register_async_context(Database, get_database())
-    container.register_async_context(CacheService, get_cache())
+    # Register async context managers (instances)
+    container.register_singleton(Database, await get_database())
+    container.register_singleton(CacheService, await get_cache())
 
     # Register factories for services that need initialization
     container.register_factory(LLMService, get_llm_service)
