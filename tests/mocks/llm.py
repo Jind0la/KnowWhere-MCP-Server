@@ -138,7 +138,19 @@ class MockLLMService:
             patterns.append("Active learning and exploration")
         
         return patterns
-    
+
+    async def check_for_contradiction(
+        self, 
+        old_content: str, 
+        new_content: str
+    ) -> bool:
+        """Mock contradiction check."""
+        return "contradict" in new_content.lower() or "not" in new_content.lower()
+
+    async def classify_content(self, content: str) -> dict[str, str | None]:
+        """Mock classification."""
+        return {"domain": "Test", "category": "General"}
+
     def _generate_default_claims(self, transcript: str) -> list[Claim]:
         """Generate default test claims from transcript."""
         claims = []

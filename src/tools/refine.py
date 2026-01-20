@@ -64,7 +64,7 @@ async def refine_knowledge(
     extraction_result = await entity_hub_service.extract_and_learn(user_id, new_content)
     new_entities = [e.name for e in extraction_result.entities]
 
-    new_memory = await processor.process_memory(
+    new_memory, _ = await processor.process_memory(
         user_id=user_id,
         content=new_content,
         memory_type=old_memory.memory_type,
@@ -78,6 +78,7 @@ async def refine_knowledge(
             "refinement_reason": reason
         }
     )
+
     
     # Link new memory to its entities
     await entity_hub_service.link_memory_to_entities(

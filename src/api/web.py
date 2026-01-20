@@ -24,7 +24,7 @@ from src.storage.repositories.edge_repo import EdgeRepository
 from src.storage.database import get_database
 from src.services.embedding import get_embedding_service
 from src.services.llm import get_llm_service
-from src.models.memory import MemoryType, MemoryCreate, MemoryUpdate, MemoryStatus
+from src.models.memory import MemoryType, MemoryCreate, MemoryUpdate, MemoryStatus, MemorySource
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -39,6 +39,8 @@ class MemoryCreateRequest(BaseModel):
     memory_type: str = Field(..., description="episodic, semantic, preference, procedural, meta")
     entities: list[str] = Field(default_factory=list)
     importance: int = Field(default=5, ge=1, le=10)
+    domain: str | None = None
+    category: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -48,6 +50,11 @@ class MemoryUpdateRequest(BaseModel):
     entities: list[str] | None = None
     importance: int | None = Field(default=None, ge=1, le=10)
     status: str | None = None
+
+
+class MemoryCreateResponse(BaseModel):
+    memory: dict
+    status: str
 
 
 class SearchRequest(BaseModel):
@@ -339,8 +346,11 @@ async def create_memory(
         existing_categories=context["categories"]
     )
 
-    # Create memory
-    memory_create = MemoryCreate(
+    # Create memory using processor (v1.3.0 "Magic" with deduplication & graph naming)
+    from src.engine.memory_processor import MemoryProcessor
+    processor = MemoryProcessor(db=db, embedding_service=embedding_service)
+    
+    memory, status = await processor.process_memory(
         user_id=user.id,
         content=data.content,
         memory_type=MemoryType(data.memory_type),
@@ -348,20 +358,25 @@ async def create_memory(
         importance=data.importance,
         embedding=embedding,
         metadata=data.metadata,
-        # Normalize inputs
-        domain=classification.get("domain").strip().title() if classification.get("domain") else None,
-        category=classification.get("category").strip().title() if classification.get("category") else None,
+        domain=data.domain or classification.get("domain"),
+        category=data.category or classification.get("category"),
+        source=MemorySource.MANUAL, # UI is manual source
     )
 
-    memory = await repo.create(memory_create)
-
     return {
-        "id": str(memory.id),
-        "content": memory.content,
-        "memory_type": memory.memory_type.value,
-        "entities": memory.entities,
-        "importance": memory.importance,
-        "created_at": memory.created_at.isoformat(),
+        "memory": {
+            "id": str(memory.id),
+            "content": memory.content,
+            "memory_type": memory.memory_type.value,
+            "entities": memory.entities,
+            "importance": memory.importance,
+            "confidence": memory.confidence,
+            "created_at": memory.created_at.isoformat(),
+            "status": memory.status.value,
+            "domain": memory.domain,
+            "category": memory.category,
+        },
+        "status": status,
     }
 
 

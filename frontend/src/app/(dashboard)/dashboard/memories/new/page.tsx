@@ -63,6 +63,8 @@ export default function NewMemoryPage() {
   const [importance, setImportance] = useState(5);
   const [entities, setEntities] = useState<string[]>([]);
   const [entityInput, setEntityInput] = useState("");
+  const [domain, setDomain] = useState("");
+  const [category, setCategory] = useState("");
 
   const handleAddEntity = () => {
     if (entityInput.trim() && !entities.includes(entityInput.trim())) {
@@ -85,14 +87,29 @@ export default function NewMemoryPage() {
 
     setLoading(true);
     try {
-      const memory = await api.createMemory({
+      const response = await api.createMemory({
         content: content.trim(),
         memory_type: memoryType,
         importance,
         entities,
+        domain: domain.trim() || undefined,
+        category: category.trim() || undefined,
       });
 
-      toast.success("Memory erstellt!");
+      const { memory, status } = response;
+
+      if (status === "updated") {
+        toast.info("Duplikat gefunden! Bestehende Memory wurde aktualisiert.", {
+          duration: 5000,
+        });
+      } else if (status === "refined") {
+        toast.success("Wissen weiterentwickelt! Ein Widerspruch wurde automatisch korrigiert.", {
+          duration: 5000,
+        });
+      } else {
+        toast.success("Memory erfolgreich gespeichert!");
+      }
+
       router.push(`/dashboard/memories/${memory.id}`);
     } catch (err) {
       toast.error("Fehler beim Erstellen der Memory");
@@ -200,6 +217,37 @@ export default function NewMemoryPage() {
                 )}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Zettelkasten Einordnung</CardTitle>
+                <CardDescription>
+                  Wähle Domain und Kategorie für dein Wissens-Hub (optional, wird sonst von KI bestimmt)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="domain">Domain</Label>
+                  <Input
+                    id="domain"
+                    placeholder="z.B. Knowwhere, Personal, Tech"
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    disabled={loading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="category">Kategorie</Label>
+                  <Input
+                    id="category"
+                    placeholder="z.B. Backend, Philosophie, Finanzen"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    disabled={loading}
+                  />
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Sidebar */}
@@ -289,7 +337,7 @@ export default function NewMemoryPage() {
             </Card>
           </div>
         </div>
-      </form>
-    </div>
+      </form >
+    </div >
   );
 }

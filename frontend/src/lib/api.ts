@@ -10,7 +10,7 @@ export interface Memory {
   entities: string[];
   importance: number;
   confidence: number;
-  status: "active" | "archived" | "deleted";
+  status: "active" | "archived" | "deleted" | "superseded";
   source: string;
   access_count: number;
   created_at: string;
@@ -22,6 +22,11 @@ export interface Memory {
 
 export interface MemoryWithSimilarity extends Memory {
   similarity: number;
+}
+
+export interface MemoryCreateResponse {
+  memory: Memory;
+  status: "created" | "updated" | "refined";
 }
 
 export interface MemoryStats {
@@ -135,8 +140,10 @@ class ApiClient {
     memory_type: string;
     entities?: string[];
     importance?: number;
+    domain?: string;
+    category?: string;
   }) {
-    return this.fetch<Memory>("/api/memories", {
+    return this.fetch<MemoryCreateResponse>("/api/memories", {
       method: "POST",
       body: JSON.stringify(data),
     });
@@ -150,6 +157,8 @@ class ApiClient {
       entities: string[];
       importance: number;
       status: string;
+      domain: string;
+      category: string;
     }>
   ) {
     return this.fetch<Memory>(`/api/memories/${id}`, {

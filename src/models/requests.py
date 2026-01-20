@@ -51,7 +51,7 @@ class RememberOutput(BaseModel):
     """Output schema for the remember() tool."""
     
     memory_id: UUID = Field(..., description="ID of the created or existing memory")
-    status: str = Field(default="created", description="Operation status: created, duplicate_found")
+    status: str = Field(default="created", description="Operation status: created, duplicate_found, refined")
     embedding_status: str = Field(
         default="generated",
         description="Status of embedding generation"

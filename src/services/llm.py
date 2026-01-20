@@ -503,6 +503,51 @@ JSON:"""
         except json.JSONDecodeError:
             return []
 
+    async def check_for_contradiction(
+        self, 
+        old_content: str, 
+        new_content: str
+    ) -> bool:
+        """
+        Check if two statements are logically contradictory.
+        Returns True if they conflict (e.g. "I love Python" vs "I hate Python").
+        Returns False if they are consistent or just different.
+        """
+        system = """You are a logical consistency checker.
+Analyze two statements and determine if they represent a direct contradiction or a significant change in stance.
+Return ONLY valid JSON."""
+
+        prompt = f"""Statement 1: "{old_content}"
+Statement 2: "{new_content}"
+
+Determine if these statements represent a direct contradiction or a fundamental change in preference/fact.
+Consider:
+- "I use Cursor" and "I use Antigravity" ARE contradictory (development environment changed).
+- "I love Python" and "Python is okay" ARE contradictory (preference changed).
+- "I live in Berlin" and "I'm in Berlin today" are NOT contradictory.
+
+JSON Response ({{ "is_contradiction": bool, "confidence": float }}):"""
+
+        response = await self.complete(prompt, system, max_tokens=128, temperature=0.1)
+        
+        try:
+            cleaned = response.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```")[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+            cleaned = cleaned.strip()
+            
+            result = json.loads(cleaned)
+            is_contradiction = result.get("is_contradiction", False)
+            confidence = result.get("confidence", 0.0)
+            
+            # Simple threshold
+            return is_contradiction if confidence > 0.6 else False
+        except Exception as e:
+            logger.warning("Contradiction check failed", error=str(e))
+            return False
+
 
     async def classify_content(
         self, 

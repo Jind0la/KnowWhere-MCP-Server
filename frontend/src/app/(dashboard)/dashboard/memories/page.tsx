@@ -67,6 +67,13 @@ const memoryTypeColors: Record<string, string> = {
   meta: "bg-purple-500/10 text-purple-500 border-purple-500/20",
 };
 
+const statusColors: Record<string, string> = {
+  active: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+  archived: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+  superseded: "bg-gray-500/10 text-gray-500 border-gray-500/20",
+  deleted: "bg-red-500/10 text-red-500 border-red-500/20",
+};
+
 const ITEMS_PER_PAGE = 10;
 
 export default function MemoriesPage() {
@@ -300,6 +307,7 @@ export default function MemoriesPage() {
                   {searchMode && (
                     <TableHead className="w-[80px]">Relevanz</TableHead>
                   )}
+                  <TableHead className="w-[80px]">Status</TableHead>
                   <TableHead className="w-[70px]">Zugriffe</TableHead>
                   <TableHead className="w-[100px]">Datum</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
@@ -307,7 +315,10 @@ export default function MemoriesPage() {
               </TableHeader>
               <TableBody>
                 {memories.map((memory) => (
-                  <TableRow key={memory.id}>
+                  <TableRow
+                    key={memory.id}
+                    className={memory.status === 'superseded' ? 'opacity-60 bg-muted/30' : ''}
+                  >
                     <TableCell>
                       <Badge
                         variant="outline"
@@ -402,6 +413,14 @@ export default function MemoriesPage() {
                         </span>
                       </TableCell>
                     )}
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={statusColors[memory.status]}
+                      >
+                        {memory.status}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-center">
                       <span className="text-sm text-muted-foreground">
                         {memory.access_count || 0}

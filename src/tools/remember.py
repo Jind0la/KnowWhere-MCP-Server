@@ -20,61 +20,7 @@ from src.storage.repositories.memory_repo import MemoryRepository
 
 logger = structlog.get_logger(__name__)
 
-# Duplicate detection threshold (same as consolidation)
-DUPLICATE_THRESHOLD = 0.85
 
-
-async def check_for_duplicate(
-    user_id: UUID,
-    content: str,
-    embedding: list[float],
-) -> tuple[bool, dict | None]:
-    """
-    Check if a similar memory already exists.
-    
-    Returns:
-        (is_duplicate, existing_memory_info) - existing_memory_info contains id and similarity
-    """
-    db = await get_database()
-    repo = MemoryRepository(db)
-    
-    # Search for similar memories
-    similar_memories = await repo.search_similar(
-        embedding=embedding,
-        user_id=user_id,
-        limit=3,
-    )
-    
-    if not similar_memories:
-        return False, None
-    
-    # Check if any memory exceeds the duplicate threshold
-    for memory in similar_memories:
-        if hasattr(memory, 'similarity') and memory.similarity >= DUPLICATE_THRESHOLD:
-            logger.info(
-                "Duplicate memory detected",
-                existing_id=str(memory.id),
-                similarity=memory.similarity,
-            )
-            return True, {
-                "id": memory.id,
-                "content": memory.content,
-                "similarity": memory.similarity,
-            }
-        
-        # Also check for exact or near-exact content match
-        if memory.content.strip().lower() == content.strip().lower():
-            logger.info(
-                "Exact duplicate content detected",
-                existing_id=str(memory.id),
-            )
-            return True, {
-                "id": memory.id,
-                "content": memory.content,
-                "similarity": 1.0,
-            }
-    
-    return False, None
 
 
 async def remember(
@@ -126,87 +72,35 @@ async def remember(
     # Validate importance
     importance = max(1, min(10, importance))
     
-    # Generate embedding early for duplicate check
-    embedding_service = await get_embedding_service()
-    embedding = await embedding_service.embed(content)
-    
-    # Check for duplicates (unless skipped)
-    if not skip_duplicate_check:
-        is_duplicate, existing = await check_for_duplicate(user_id, content, embedding)
-        
-        if is_duplicate and existing:
-            logger.info(
-                "Returning existing memory instead of creating duplicate",
-                existing_id=str(existing["id"]),
-                similarity=existing.get("similarity", 1.0),
-            )
-            
-            # Return the existing memory info
-            return RememberOutput(
-                memory_id=existing["id"],
-                status="duplicate_found",
-                embedding_status="existing",
-                entities_extracted=entities or [],
-                created_at=datetime.now(),  # Not accurate but indicates "now"
-                message=f"Similar memory already exists (similarity: {existing.get('similarity', 1.0):.0%})",
-            )
-    
-    # Extract entities using Zettelkasten EntityHubService
-    # This uses a self-learning dictionary + LLM fallback
-    from src.services.entity_hub_service import get_entity_hub_service
-    
-    entity_hub_service = await get_entity_hub_service()
-    extraction_result = await entity_hub_service.extract_and_learn(user_id, content)
-    
-    # Get entity names for the memory
-    extracted_entities = [e.name for e in extraction_result.entities]
-    
-    # If user provided specific entities, merge them
-    if entities:
-        # User-provided entities take priority
-        user_entities_lower = {e.lower() for e in entities}
-        for e in extracted_entities:
-            if e.lower() not in user_entities_lower:
-                entities.append(e)
-        extracted_entities = entities
-    
-    logger.debug(
-        "Entities extracted",
-        from_dictionary=len(extraction_result.from_dictionary),
-        from_llm=len(extraction_result.from_llm),
-        total=len(extracted_entities),
-    )
-    
-    # Process and store memory (pass pre-computed embedding)
+    # Use MemoryProcessor for all logic (Deduplication, Conflict, Entity/Graph)
+    # v1.3.0 "Magic" consolidated here
     processor = MemoryProcessor()
-    memory = await processor.process_memory(
+    
+    # Check if similarity is already computed via skip_duplicate_check (optional optimization)
+    # But for simplicity and consistency, we let the processor handle it
+    memory, proc_status = await processor.process_memory(
         user_id=user_id,
         content=content,
         memory_type=mem_type,
-        entities=extracted_entities,
+        entities=entities, # Pass user-provided entities
         importance=importance,
-        source=MemorySource.MANUAL,
+        source=MemorySource.MANUAL, # MCP tool calls are manual instructions
         metadata=metadata or {},
-        embedding=embedding,  # Pass pre-computed embedding
+        embedding=None,
     )
     
-    # Link memory to entity hubs for graph navigation
-    await entity_hub_service.link_memory_to_entities(
-        memory=memory,
-        entities=extraction_result.entities,
-    )
-    
-    logger.info(
-        "Memory stored successfully",
-        memory_id=str(memory.id),
-        entities_count=len(extracted_entities),
-    )
-    
+    # proc_status is one of: "created", "updated", "refined"
+    status = "created"
+    if proc_status == "updated":
+        status = "duplicate_found"
+    elif proc_status == "refined":
+        status = "refined"
+
     return RememberOutput(
         memory_id=memory.id,
-        status="created",
+        status=status,
         embedding_status="generated",
-        entities_extracted=extracted_entities,
+        entities_extracted=memory.entities,
         created_at=memory.created_at,
     )
 

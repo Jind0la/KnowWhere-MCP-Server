@@ -7,6 +7,7 @@ Processes different memory types and handles memory creation.
 from datetime import datetime
 from uuid import UUID
 
+from src.config import Settings, get_settings
 import structlog
 
 from src.models.memory import (
@@ -14,11 +15,17 @@ from src.models.memory import (
     MemoryCreate,
     MemorySource,
     MemoryType,
+    MemoryStatus,
+    MemoryUpdate,
 )
+from src.models.edge import EdgeCreate, EdgeType
+from src.storage.repositories.edge_repo import EdgeRepository
 from src.services.embedding import EmbeddingService, get_embedding_service
 from src.storage.cache import CacheService, get_cache
 from src.storage.database import Database, get_database
 from src.storage.repositories.memory_repo import MemoryRepository
+from src.services.llm import get_llm_service
+from src.services.entity_hub_service import get_entity_hub_service
 
 logger = structlog.get_logger(__name__)
 
@@ -91,15 +98,21 @@ class MemoryProcessor:
         source_id: str | None = None,
         metadata: dict | None = None,
         embedding: list[float] | None = None,
-    ) -> Memory:
+        domain: str | None = None,
+        category: str | None = None,
+        skip_entity_extraction: bool = False,
+    ) -> tuple[Memory, str]:
         """
         Process and create a new memory.
 
         Steps:
         1. Generate embedding (if not provided)
         2. Calculate importance if not provided
-        3. Persist to database
-        4. Invalidate cache
+        3. Classify content (domain/category) if not provided
+        4. Detect duplicates/conflicts (Hygiene)
+        5. Extract and link entities (Graph)
+        6. Persist to database
+        7. Invalidate cache
 
         Args:
             user_id: Owner user ID
@@ -111,10 +124,14 @@ class MemoryProcessor:
             source: Memory source
             source_id: Reference ID
             metadata: Additional metadata
-            embedding: Optional pre-computed embedding (for duplicate check optimization)
+            embedding: Optional pre-computed embedding
+            domain: Optional pre-classified domain
+            category: Optional pre-classified category
+            skip_entity_extraction: Skip automated graph linking (useful for imports)
 
         Returns:
-            Created Memory
+            tuple of (Memory, status string)
+            status can be: "created", "updated", "refined"
         """
         logger.info(
             "Processing memory",
@@ -123,33 +140,115 @@ class MemoryProcessor:
             content_length=len(content),
         )
 
-        # Generate embedding if not provided
+        # 1. Generate embedding if not provided
         if embedding is None:
             embedding_service = await self._get_embedding_service()
             embedding = await embedding_service.embed(content)
 
-        # Calculate importance if not provided
+        # 2. Calculate importance if not provided
         if importance is None:
             importance = self._calculate_importance(content, memory_type, entities)
 
-        # Classify content (Semantic Space)
-        from src.services.llm import get_llm_service
-        try:
-            llm_service = await get_llm_service()
-            classification = await llm_service.classify_content(content)
-        except Exception as e:
-            logger.warning("Classification failed", error=str(e))
-            classification = {"domain": None, "category": None}
+        # 3. Classify content (Semantic Space) if not provided
+        if not domain or not category:
+            from src.services.llm import get_llm_service
+            try:
+                llm_service = await get_llm_service()
+                # If we're missing classification, we try to get it
+                classification = await llm_service.classify_content(content)
+                domain = domain or classification.get("domain")
+                category = category or classification.get("category")
+            except Exception as e:
+                logger.warning("Classification failed", error=str(e))
+        
+        # Normalize classification
+        domain = domain.strip().title() if domain else None
+        category = category.strip().title() if category else None
 
-        # Create memory
+        # --- 4. Hygiene Section: Deduplication & Conflict Detection ---
+        repo = await self._get_memory_repo()
+        
+        # Search for similar existing memories
+        similar_memories = await repo.search_similar(embedding, user_id, limit=3)
+        
+        for sim in similar_memories:
+            # A. Exact or near-exact duplicate (> 0.95 similarity)
+            if sim.similarity > 0.95:
+                logger.info(
+                    "Duplicate memory detected - updating existing",
+                    existing_id=str(sim.id),
+                    similarity=sim.similarity
+                )
+                # Incremental update
+                update_data = MemoryUpdate(access_count=sim.access_count + 1)
+                updated = await repo.update(sim.id, user_id, update_data)
+                
+                # Invalidate user cache
+                cache = await self._get_cache()
+                await cache.invalidate_user_cache(str(user_id))
+                
+                return updated if updated else sim, "updated"
+
+            # B. Potential conflict (using configured threshold for LLM check)
+            settings = get_settings()
+            if sim.similarity > settings.consolidation_conflict_threshold_low:
+                # Late import to avoid circular dependency
+                from src.services.llm import get_llm_service
+                llm_service = await get_llm_service()
+                is_contradiction = await llm_service.check_for_contradiction(sim.content, content)
+                
+                if is_contradiction:
+                    logger.info(
+                        "Logical contradiction detected - triggering automatic refinement",
+                        old_id=str(sim.id),
+                        similarity=sim.similarity
+                    )
+                    memory = await self._refine_existing_memory(
+                        user_id=user_id,
+                        old_memory=sim,
+                        new_content=content,
+                        new_memory_type=memory_type,
+                        new_embedding=embedding,
+                        new_entities=entities,
+                        new_domain=domain,
+                        new_category=category,
+                        new_importance=importance,
+                        new_source=source,
+                        new_source_id=source_id,
+                        new_metadata=metadata
+                    )
+                    return memory, "refined"
+
+        # --- 5. Extract and link entities (Graph Navigation) ---
+        extracted_entities = entities or []
+        entity_records = []
+        
+        if not skip_entity_extraction:
+            try:
+                from src.services.entity_hub_service import get_entity_hub_service
+                entity_hub_service = await get_entity_hub_service()
+                
+                # Extrahiere und lerne neue Entitäten
+                extraction_result = await entity_hub_service.extract_and_learn(user_id, content)
+                entity_records = extraction_result.entities
+                
+                # Merge mit übergebenen Entitäten
+                learned_names = [e.name for e in entity_records]
+                for name in learned_names:
+                    if name not in extracted_entities:
+                        extracted_entities.append(name)
+            except Exception as e:
+                logger.warning("Entity extraction/linking failed", error=str(e))
+
+        # 6. Create memory
         memory_create = MemoryCreate(
             user_id=user_id,
             content=content,
             memory_type=memory_type,
             embedding=embedding,
-            entities=entities or [],
-            domain=classification["domain"],
-            category=classification["category"],
+            entities=extracted_entities,
+            domain=domain,
+            category=category,
             importance=importance,
             confidence=confidence,
             source=source,
@@ -158,21 +257,31 @@ class MemoryProcessor:
         )
 
         # Persist
-        repo = await self._get_memory_repo()
         memory = await repo.create(memory_create)
 
-        # Invalidate user cache
+        # --- 7. Graph Linking: Connect memory to entity hubs ---
+        if entity_records:
+            try:
+                await entity_hub_service.link_memory_to_entities(
+                    memory=memory,
+                    entities=entity_records,
+                )
+            except Exception as e:
+                logger.warning("Graph linking failed", error=str(e))
+
+        # Invalidate cache
         cache = await self._get_cache()
         await cache.invalidate_user_cache(str(user_id))
 
         logger.info(
-            "Memory created",
+            "Memory created successfully",
             memory_id=str(memory.id),
             memory_type=memory_type.value,
             importance=importance,
+            entities_count=len(extracted_entities),
         )
 
-        return memory
+        return memory, "created"
 
     async def process_memories_batch(
         self,
@@ -275,7 +384,7 @@ class MemoryProcessor:
         content: str,
         entities: list[str] | None = None,
         **kwargs,
-    ) -> Memory:
+    ) -> tuple[Memory, str]:
         """
         Process an episodic memory (specific event/conversation).
         
@@ -295,7 +404,7 @@ class MemoryProcessor:
         content: str,
         entities: list[str] | None = None,
         **kwargs,
-    ) -> Memory:
+    ) -> tuple[Memory, str]:
         """
         Process a semantic memory (facts and relationships).
         
@@ -315,7 +424,7 @@ class MemoryProcessor:
         content: str,
         entities: list[str] | None = None,
         **kwargs,
-    ) -> Memory:
+    ) -> tuple[Memory, str]:
         """
         Process a preference memory (user preferences).
         
@@ -339,7 +448,7 @@ class MemoryProcessor:
         content: str,
         entities: list[str] | None = None,
         **kwargs,
-    ) -> Memory:
+    ) -> tuple[Memory, str]:
         """
         Process a procedural memory (how-to knowledge).
         
@@ -359,7 +468,7 @@ class MemoryProcessor:
         content: str,
         entities: list[str] | None = None,
         **kwargs,
-    ) -> Memory:
+    ) -> tuple[Memory, str]:
         """
         Process a meta-cognitive memory (knowledge about the user's knowledge).
         
@@ -471,3 +580,86 @@ class MemoryProcessor:
         
         # Default to semantic
         return MemoryType.SEMANTIC
+
+    async def _refine_existing_memory(
+        self,
+        user_id: UUID,
+        old_memory: Memory,
+        new_content: str,
+        new_memory_type: MemoryType,
+        new_embedding: list[float],
+        new_entities: list[str] | None,
+        new_domain: str | None,
+        new_category: str | None,
+        new_importance: int,
+        new_source: MemorySource,
+        new_source_id: str | None,
+        new_metadata: dict | None
+    ) -> Memory:
+        """
+        Internal helper to refine an existing memory automatically.
+        Archives the old one as SUPERSEDED and creates a new one with EVOLVES_INTO edge.
+        """
+        db = await self._get_db()
+        memory_repo = await self._get_memory_repo()
+        edge_repo = EdgeRepository(db)
+        
+        # 1. Create the new memory record
+        new_memory_create = MemoryCreate(
+            user_id=user_id,
+            content=new_content,
+            memory_type=new_memory_type,
+            embedding=new_embedding,
+            entities=new_entities or [],
+            domain=new_domain or old_memory.domain,
+            category=new_category or old_memory.category,
+            importance=new_importance,
+            confidence=1.0,  # High confidence for explicit updates
+            source=new_source,
+            source_id=new_source_id,
+            metadata={
+                **(new_metadata or {}),
+                "refined_automatically": True,
+                "refined_from": str(old_memory.id)
+            }
+        )
+        new_memory = await memory_repo.create(new_memory_create)
+        
+        # 2. Link new memory to entities (via entity hub service)
+        try:
+            entity_hub_service = await get_entity_hub_service()
+            # We assume extraction happened before calling this, or we learned them
+            # Let's verify entities are learned if they were provided
+            if new_entities:
+                 learn_result = await entity_hub_service.extract_and_learn(user_id, new_content)
+                 await entity_hub_service.link_memory_to_entities(
+                    memory=new_memory,
+                    entities=learn_result.entities,
+                )
+        except Exception as e:
+            logger.warning("Entity linking in auto-refinement failed", error=str(e))
+
+        # 3. Update old memory status to SUPERSEDED
+        await memory_repo.update(old_memory.id, user_id, MemoryUpdate(
+            status=MemoryStatus.SUPERSEDED,
+            superseded_by=new_memory.id
+        ))
+        
+        # 4. Create EVOLVES_INTO edge in graph
+        edge_create = EdgeCreate(
+            user_id=user_id,
+            from_node_id=old_memory.id,
+            to_node_id=new_memory.id,
+            edge_type=EdgeType.EVOLVES_INTO,
+            strength=1.0,
+            confidence=1.0,
+            reason="Automated conflict resolution - Knowledge evolution",
+            metadata={"auto_generated": True, "type": "hygiene_refinement"}
+        )
+        await edge_repo.create(edge_create)
+        
+        # 5. Invalidate user cache
+        cache = await self._get_cache()
+        await cache.invalidate_user_cache(str(user_id))
+        
+        return new_memory
