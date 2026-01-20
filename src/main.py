@@ -52,6 +52,10 @@ logger = structlog.get_logger(__name__)
 # Get settings
 settings = get_settings()
 
+# Module-level state for Shadow Listener (FastMCP doesn't have app.state)
+_shadow_listener = None
+_shadow_cleanup_task = None
+
 # =============================================================================
 # Lifecycle Management
 # =============================================================================
@@ -59,6 +63,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan_context(app):
     """Manage server lifecycle - connect/disconnect resources."""
+    global _shadow_listener, _shadow_cleanup_task
     logger.info("Starting Knowwhere Memory MCP Server...")
 
     # Initialize dependency container
@@ -85,12 +90,11 @@ async def lifespan_context(app):
             logger.warning("⚠️ No KNOWWHERE_API_KEY provided - running in dev mode")
 
         from src.engine.shadow_listener import ShadowListener
-        listener = await container.resolve(ShadowListener)
-        app.state.shadow_listener = listener  # Store in app state
+        _shadow_listener = await container.resolve(ShadowListener)
         
         # Start background cleanup for thought buffer
-        app.state.shadow_cleanup_task = asyncio.create_task(
-            listener.buffer.cleanup_loop()
+        _shadow_cleanup_task = asyncio.create_task(
+            _shadow_listener.buffer.cleanup_loop()
         )
         logger.info("Shadow Listener cleanup loop started")
 
@@ -105,8 +109,8 @@ async def lifespan_context(app):
     # Cleanup
     logger.info("Shutting down Knowwhere Memory MCP Server...")
     
-    if hasattr(app.state, "shadow_cleanup_task"):
-        app.state.shadow_cleanup_task.cancel()
+    if _shadow_cleanup_task:
+        _shadow_cleanup_task.cancel()
         logger.info("Shadow Listener cleanup loop stopped")
         
     await close_container()
