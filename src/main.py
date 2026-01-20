@@ -441,7 +441,7 @@ async def mcp_recall(
                 del m["embedding"]
                 
         result["_debug_compact_mode"] = True
-        result["_server_version"] = "1.2.0-ULTRA-COMPACT"
+        result["_server_version"] = "1.3.0-EVOLUTION"
     
     return result
 
