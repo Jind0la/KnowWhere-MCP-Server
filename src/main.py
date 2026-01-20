@@ -1100,7 +1100,7 @@ async def run_server():
 
 @mcp.resource("system://version")
 def get_version() -> str:
-    \"\"\"Get the current server version and commit hash.\"\"\"
+    """Get the current server version and commit hash."""
     return "KnowWhere MCP Server v1.1.0 (Commit: af19f02). Features: CompactMode, RelevanceThreshold, EvolutionFix"
 
 
