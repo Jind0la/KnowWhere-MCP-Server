@@ -1109,7 +1109,7 @@ def main():
             return {
                 "status": "healthy", 
                 "service": "knowwhere-mcp",
-                "version": "1.2.0-ULTRA-COMPACT",
+                "version": "1.3.0-EVOLUTION",
                 "features": ["compact_mode", "relevance_threshold", "evolution_fix"]
             }
         

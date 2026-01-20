@@ -36,10 +36,8 @@ async def refine_knowledge(
     Returns:
         Dict with status and new_memory_id
     """
-    try:
-        mem_id = UUID(memory_id)
-    except ValueError:
-        raise ValueError(f"Invalid memory_id format: {memory_id}")
+    # Support both string and UUID object
+    mem_id = memory_id if isinstance(memory_id, UUID) else UUID(memory_id)
 
     db = await get_database()
     memory_repo = MemoryRepository(db)
