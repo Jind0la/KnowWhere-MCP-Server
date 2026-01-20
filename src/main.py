@@ -1062,7 +1062,12 @@ def main():
         # Add health check endpoint
         @combined_app.get("/health")
         async def health_check():
-            return {"status": "healthy", "service": "knowwhere-mcp"}
+            return {
+                "status": "healthy", 
+                "service": "knowwhere-mcp",
+                "version": "1.1.0-af19f02",
+                "commit": "af19f02"
+            }
         
         # Mount the MCP server as a sub-application
         # The MCP endpoints will be available at /mcp/sse and /mcp/messages/
@@ -1091,6 +1096,12 @@ async def run_server():
     """Run the server programmatically."""
     # Lifespan is now handled by FastMCP
     await mcp.run_async()
+
+
+@mcp.resource("system://version")
+def get_version() -> str:
+    \"\"\"Get the current server version and commit hash.\"\"\"
+    return "KnowWhere MCP Server v1.1.0 (Commit: af19f02). Features: CompactMode, RelevanceThreshold, EvolutionFix"
 
 
 if __name__ == "__main__":
