@@ -1144,8 +1144,8 @@ async def run_server():
 
 @mcp.resource("system://version")
 def get_version() -> str:
-    """Get the current server version and capabilities."""
-    return "KnowWhere MCP Server v1.2.0-ULTRA-COMPACT. Features: CompactMode, RelevanceThreshold, EvolutionFix"
+    """Get the current server version."""
+    return "KnowWhere MCP Server v1.3.0-EVOLUTION. Features: CompactMode, RelevanceThreshold, EvolutionFix, KnowledgeRefinement"
 
 
 if __name__ == "__main__":
