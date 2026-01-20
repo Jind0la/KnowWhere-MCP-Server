@@ -5,6 +5,7 @@ Uses Pydantic Settings for type-safe environment variable handling.
 """
 
 import os
+import asyncio
 from functools import lru_cache
 from typing import Any, Dict, Literal, Type, TypeVar
 from contextlib import asynccontextmanager
@@ -195,6 +196,10 @@ class DependencyContainer:
             factory = self._factories[interface]
             if callable(factory):
                 instance = factory()
+                # Check if factory returned a coroutine
+                if asyncio.iscoroutine(instance):
+                    instance = await instance
+                
                 if hasattr(instance, '__aenter__'):  # Async context manager
                     return await instance.__aenter__()
                 return instance
@@ -243,6 +248,8 @@ async def init_container() -> DependencyContainer:
     from src.services.embedding import EmbeddingService, get_embedding_service
     from src.engine.entity_extractor import EntityExtractor, get_entity_extractor
     from src.engine.knowledge_graph import KnowledgeGraphManager, get_knowledge_graph
+    from src.engine.memory_processor import MemoryProcessor
+    from src.engine.shadow_listener import ShadowListener
 
     # Register async context managers (instances)
     container.register_singleton(Database, await get_database())
@@ -253,6 +260,18 @@ async def init_container() -> DependencyContainer:
     container.register_factory(EmbeddingService, get_embedding_service)
     container.register_factory(EntityExtractor, get_entity_extractor)
     container.register_factory(KnowledgeGraphManager, get_knowledge_graph)
+
+    # Register MemoryProcessor and ShadowListener
+    # Process is a simple class, but lets give it dependencies manually for now
+    db = await container.resolve(Database)
+    embed = await container.resolve(EmbeddingService)
+    cache = await container.resolve(CacheService)
+    processor = MemoryProcessor(db=db, embedding_service=embed, cache=cache)
+    container.register_singleton(MemoryProcessor, processor)
+    
+    # ShadowListener depends on processor and llm
+    llm = await container.resolve(LLMService)
+    container.register_singleton(ShadowListener, ShadowListener(processor, llm))
 
     return container
 

@@ -100,6 +100,7 @@ class MemoryProcessor:
         embedding: list[float] | None = None,
         domain: str | None = None,
         category: str | None = None,
+        status: MemoryStatus = MemoryStatus.ACTIVE,
         skip_entity_extraction: bool = False,
     ) -> tuple[Memory, str]:
         """
@@ -264,6 +265,7 @@ class MemoryProcessor:
             confidence=confidence,
             source=source,
             source_id=source_id,
+            status=status,
             metadata=metadata or {},
         )
 

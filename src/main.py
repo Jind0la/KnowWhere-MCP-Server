@@ -84,6 +84,16 @@ async def lifespan_context(app):
         else:
             logger.warning("⚠️ No KNOWWHERE_API_KEY provided - running in dev mode")
 
+        from src.engine.shadow_listener import ShadowListener
+        listener = await container.resolve(ShadowListener)
+        app.state.shadow_listener = listener  # Store in app state
+        
+        # Start background cleanup for thought buffer
+        app.state.shadow_cleanup_task = asyncio.create_task(
+            listener.buffer.cleanup_loop()
+        )
+        logger.info("Shadow Listener cleanup loop started")
+
         logger.info("✅ All services initialized successfully!")
 
     except Exception as e:
@@ -94,6 +104,11 @@ async def lifespan_context(app):
 
     # Cleanup
     logger.info("Shutting down Knowwhere Memory MCP Server...")
+    
+    if hasattr(app.state, "shadow_cleanup_task"):
+        app.state.shadow_cleanup_task.cancel()
+        logger.info("Shadow Listener cleanup loop stopped")
+        
     await close_container()
     await close_audit_logger()
     logger.info("Shutdown complete")

@@ -33,6 +33,7 @@ class MemoryType(str, Enum):
 class MemoryStatus(str, Enum):
     """Memory lifecycle status."""
     ACTIVE = "active"
+    DRAFT = "draft"
     ARCHIVED = "archived"
     DELETED = "deleted"
     SUPERSEDED = "superseded"
@@ -59,6 +60,10 @@ class MemoryBase(BaseModel):
     memory_type: MemoryType = Field(
         ...,
         description="Type of memory (episodic, semantic, preference, procedural, meta)"
+    )
+    status: MemoryStatus = Field(
+        default=MemoryStatus.ACTIVE,
+        description="Current status"
     )
     entities: list[str] = Field(
         default_factory=list,
@@ -131,7 +136,7 @@ class Memory(MemoryBase):
         exclude=True,  # Never include embeddings in JSON responses
     )
     
-    # Status tracking
+    # Status tracking is now in base, but Memory keeps it for full schema
     status: MemoryStatus = Field(
         default=MemoryStatus.ACTIVE,
         description="Current status"

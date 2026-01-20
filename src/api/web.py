@@ -63,6 +63,12 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
 
 
+class ListenStreamRequest(BaseModel):
+    conversation_id: str
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str
+
+
 class ApiKeyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     scopes: list[str] = Field(default_factory=lambda: ["memories:read", "memories:write"])
@@ -130,6 +136,14 @@ app.add_middleware(
 
 from fastapi import APIRouter
 router = APIRouter(prefix="/api")
+
+
+async def get_shadow_listener():
+    """Get ShadowListener instance from container."""
+    from src.config import get_container
+    from src.engine.shadow_listener import ShadowListener
+    container = get_container()
+    return await container.resolve(ShadowListener)
 
 
 # =============================================================================
@@ -226,6 +240,28 @@ async def test_connection(user: CurrentUser = Depends(get_current_user)):
         "memory_count": memory_count or 0,
         "message": "KnowWhere ist verbunden und funktioniert! 🎉",
     }
+
+
+# =============================================================================
+# Stream / Shadow Listener Endpoints
+# =============================================================================
+
+@router.post("/listen/stream")
+async def listen_stream(
+    request: ListenStreamRequest,
+    user: CurrentUser = Depends(get_current_user),
+    listener: Any = Depends(get_shadow_listener)
+):
+    """
+    Receive a conversation chunk for background memory extraction.
+    """
+    await listener.listen(
+        user_id=user.id,
+        conversation_id=request.conversation_id,
+        role=request.role,
+        chunk=request.content
+    )
+    return {"status": "accepted"}
 
 
 # =============================================================================

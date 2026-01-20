@@ -52,29 +52,35 @@ class MemoryRepository:
             INSERT INTO memories (
                 user_id, content, memory_type, embedding, entities,
                 importance, confidence, source, source_id, metadata,
-                domain, category
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                domain, category, status
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         """
         
-        row = await self.db.fetchrow(
-            query,
-            memory.user_id,
-            memory.content,
-            memory.memory_type.value,
-            memory.embedding,
-            json.dumps(memory.entities),
-            memory.importance,
-            memory.confidence,
-            memory.source.value,
-            memory.source_id,
-            json.dumps(memory.metadata) if memory.metadata else None,
-            memory.domain,
-            memory.category,
-        )
-        
-        logger.info("Memory created", memory_id=row["id"], user_id=memory.user_id)
-        return self._row_to_memory(row)
+        import json
+        logger.debug("Executing memory creation query", user_id=str(memory.user_id), status=memory.status.value)
+        try:
+            row = await self.db.fetchrow(
+                query,
+                memory.user_id,
+                memory.content,
+                memory.memory_type.value,
+                memory.embedding,
+                json.dumps(memory.entities),
+                memory.importance,
+                memory.confidence,
+                memory.source.value,
+                memory.source_id,
+                json.dumps(memory.metadata) if memory.metadata else None,
+                memory.domain,
+                memory.category,
+                memory.status.value,
+            )
+            logger.info("Memory created", memory_id=row["id"], user_id=memory.user_id)
+            return self._row_to_memory(row)
+        except Exception as e:
+            logger.error("Memory creation query failed", error=str(e), user_id=str(memory.user_id))
+            raise
     
     async def get_by_id(
         self,
