@@ -265,6 +265,24 @@ async def with_auth_and_audit(
             "limit": rate_info.get("limit"),
         }
     
+    # Shadow Listener: Passively capture all MCP tool inputs
+    if _shadow_listener and user_id:
+        try:
+            # Extract content from kwargs (the user's input)
+            content = kwargs.get("content") or kwargs.get("query") or ""
+            if content:
+                from datetime import datetime as dt
+                asyncio.create_task(
+                    _shadow_listener.listen(
+                        user_id=user_id,
+                        conversation_id=f"mcp_session_{str(user_id)[:8]}",
+                        role="user",
+                        chunk=f"[{tool_name}] {content}"
+                    )
+                )
+        except Exception as sl_err:
+            logger.warning("Shadow Listener forwarding failed", error=str(sl_err))
+    
     # Execute with audit logging
     async with AuditContext(user_id, f"tool:{tool_name}") as ctx:
         try:
