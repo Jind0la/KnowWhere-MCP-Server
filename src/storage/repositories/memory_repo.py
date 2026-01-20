@@ -123,7 +123,9 @@ class MemoryRepository:
         min_importance: int | None = None,
         entity: str | None = None,
         date_range: str | None = None,
+        status: MemoryStatus | None = MemoryStatus.ACTIVE,
     ) -> list[MemoryWithSimilarity]:
+        logger.error("SEARCH_SIMILAR CALLED", status=status, user_id=user_id)
         """
         Search for similar memories using vector similarity.
         
@@ -140,9 +142,16 @@ class MemoryRepository:
             List of memories with similarity scores
         """
         # Build dynamic query with filters
-        conditions = ["user_id = $2", "status = 'active'"]
+        conditions = ["user_id = $2"]
         params: list[Any] = [embedding, user_id]
-        param_idx = 3
+        param_idx = 3 # $1=embedding, $2=user_id, $3 and beyond for filters
+        
+        if status:
+            conditions.append(f"status = ${param_idx}")
+            params.append(status.value)
+            param_idx += 1
+        else:
+            conditions.append(f"status != 'deleted'")
         
         if memory_type is not None:
             conditions.append(f"memory_type = ${param_idx}")
@@ -166,7 +175,9 @@ class MemoryRepository:
                 params.append(date_filter)
                 param_idx += 1
         
+        # Add limit to params
         params.append(limit)
+        limit_idx = param_idx
         
         query = f"""
             SELECT *,
@@ -174,7 +185,7 @@ class MemoryRepository:
             FROM memories
             WHERE {' AND '.join(conditions)}
             ORDER BY embedding <=> $1::vector
-            LIMIT ${param_idx}
+            LIMIT ${limit_idx}
         """
         
         rows = await self.db.fetch(query, *params)

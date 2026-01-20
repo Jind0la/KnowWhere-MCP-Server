@@ -10,7 +10,7 @@ export interface Memory {
   entities: string[];
   importance: number;
   confidence: number;
-  status: "active" | "archived" | "deleted" | "superseded";
+  status: "active" | "archived" | "deleted" | "superseded" | "draft";
   source: string;
   access_count: number;
   created_at: string;
@@ -245,6 +245,20 @@ class ApiClient {
       }>>;
       memory_ids: string[];
     }>(`/api/entities/${entityId}/memories${query}`);
+  }
+
+  // Draft Memories & Feedback
+  async getDraftMemories() {
+    return this.fetch<{ memories: Memory[]; total: number; has_more: boolean }>(
+      "/api/memories?status=draft"
+    );
+  }
+
+  async submitFeedback(id: string, action: "approve" | "reject") {
+    return this.fetch<Memory>(`/api/memories/${id}/feedback`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    });
   }
 
   // API Keys

@@ -153,8 +153,9 @@ class MemoryProcessor:
         logger.info(
             "Processing memory",
             user_id=str(user_id),
-            memory_type=memory_type.value,
+            memory_type=memory_type.value if memory_type else None,
             content_length=len(content),
+            status=status.value if hasattr(status, 'value') else status
         )
 
         # 3. Calculate importance if not provided
@@ -180,26 +181,29 @@ class MemoryProcessor:
         # --- 4. Hygiene Section: Deduplication & Conflict Detection ---
         repo = await self._get_memory_repo()
         
-        # Search for similar existing memories
-        similar_memories = await repo.search_similar(embedding, user_id, limit=3)
+        # Search for similar existing memories (matching the intended status)
+        similar_memories = await repo.search_similar(embedding, user_id, limit=3, status=status)
         
         for sim in similar_memories:
             # A. Exact or near-exact duplicate (> 0.95 similarity)
             if sim.similarity > 0.95:
-                logger.info(
-                    "Duplicate memory detected - updating existing",
-                    existing_id=str(sim.id),
-                    similarity=sim.similarity
-                )
-                # Incremental update
-                update_data = MemoryUpdate(access_count=sim.access_count + 1)
-                updated = await repo.update(sim.id, user_id, update_data)
-                
-                # Invalidate user cache
-                cache = await self._get_cache()
-                await cache.invalidate_user_cache(str(user_id))
-                
-                return updated if updated else sim, "updated"
+                if status == MemoryStatus.DRAFT:
+                    pass # Allow maturation logic to handle consolidation
+                else:
+                    logger.info(
+                        "Duplicate memory detected - updating existing",
+                        existing_id=str(sim.id),
+                        similarity=sim.similarity
+                    )
+                    # Incremental update
+                    update_data = MemoryUpdate(access_count=sim.access_count + 1)
+                    updated = await repo.update(sim.id, user_id, update_data)
+                    
+                    # Invalidate user cache
+                    cache = await self._get_cache()
+                    await cache.invalidate_user_cache(str(user_id))
+                    
+                    return updated if updated else sim, "updated"
 
             # B. Potential conflict (using configured threshold for LLM check)
             settings = get_settings()
@@ -230,6 +234,32 @@ class MemoryProcessor:
                         new_metadata=metadata
                     )
                     return memory, "refined"
+
+        # --- 4.5 Maturation Section: Ripen DRAFT memories ---
+        if status == MemoryStatus.DRAFT:
+            # Check for existing drafts to consolidate
+            similar_drafts = await repo.search_similar(embedding, user_id, limit=3, status=MemoryStatus.DRAFT)
+            for draft in similar_drafts:
+                if draft.similarity > 0.60:
+                    logger.info("Similar draft found - consolidating", draft_id=str(draft.id), similarity=draft.similarity)
+                    # Increase confidence
+                    new_confidence = min(1.0, draft.confidence + 0.2)
+                    new_status = MemoryStatus.ACTIVE if new_confidence >= 0.8 else MemoryStatus.DRAFT
+                    
+                    update_data = MemoryUpdate(
+                        confidence=new_confidence,
+                        status=new_status,
+                        access_count=draft.access_count + 1
+                    )
+                    updated = await repo.update(draft.id, user_id, update_data)
+                    
+                    if new_status == MemoryStatus.ACTIVE:
+                        logger.info("Draft memory RIPENED to ACTIVE", memory_id=str(draft.id))
+                        # Invalidate cache
+                        cache = await self._get_cache()
+                        await cache.invalidate_user_cache(str(user_id))
+                    
+                    return updated if updated else draft, "ripened"
 
         # --- 5. Extract and link entities (Graph Navigation) ---
         extracted_entities = entities or []

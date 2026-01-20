@@ -68,6 +68,9 @@ class ListenStreamRequest(BaseModel):
     role: str = Field(..., pattern="^(user|assistant)$")
     content: str
 
+class MemoryFeedback(BaseModel):
+    action: str = Field(..., pattern="^(approve|reject)$")
+
 
 class ApiKeyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -263,6 +266,46 @@ async def listen_stream(
     )
     return {"status": "accepted"}
 
+@router.post("/memories/{memory_id}/feedback")
+async def memory_feedback(
+    memory_id: UUID,
+    feedback: MemoryFeedback,
+    user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Provide user feedback (approve/reject) for a draft memory.
+    """
+    from src.storage.repositories.memory_repo import MemoryRepository
+    db = await get_database()
+    repo = MemoryRepository(db)
+    
+    # Verify memory exists and belongs to user
+    memory = await repo.get_by_id(memory_id, user.id)
+    if not memory:
+        # Check draft status specifically
+        drafts = await repo.list_by_user(user.id, status=MemoryStatus.DRAFT)
+        memory = next((m for m in drafts if m.id == memory_id), None)
+        
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+        
+    if feedback.action == "approve":
+        update_data = MemoryUpdate(status=MemoryStatus.ACTIVE, confidence=1.0)
+        await repo.update(memory_id, user.id, update_data)
+        logger.info("Memory approved by user", memory_id=str(memory_id), user_id=str(user.id))
+        
+        # Invalidate cache
+        from src.storage.cache import get_cache
+        cache = await get_cache()
+        await cache.invalidate_user_cache(str(user.id))
+    else:
+        # Reject: Mark as deleted or archived
+        update_data = MemoryUpdate(status=MemoryStatus.DELETED)
+        await repo.update(memory_id, user.id, update_data)
+        logger.info("Memory rejected by user", memory_id=str(memory_id), user_id=str(user.id))
+
+    return {"status": "success", "action": feedback.action}
+
 
 # =============================================================================
 # Memory Endpoints
@@ -275,13 +318,23 @@ async def list_memories(
     offset: int = Query(default=0, ge=0),
     memory_type: str | None = Query(default=None),
     importance_min: int | None = Query(default=None, ge=1, le=10),
+    status: str | None = Query(default=None, description="Filter by status: active, draft, archived, deleted, superseded"),
 ):
     """List user's memories with pagination and filtering."""
+    from src.models.memory import MemoryStatus
     db = await get_database()
     repo = MemoryRepository(db)
 
+    # Parse status if provided
+    memory_status = None
+    if status:
+        try:
+            memory_status = MemoryStatus(status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+
     # Get memories
-    memories = await repo.list_by_user(user.id, limit=limit + 1, offset=offset)
+    memories = await repo.list_by_user(user.id, limit=limit + 1, offset=offset, status=memory_status if memory_status else MemoryStatus.ACTIVE)
 
     # Apply filters
     if memory_type:
