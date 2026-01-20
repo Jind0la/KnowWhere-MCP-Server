@@ -24,10 +24,10 @@ from src.middleware.rate_limit import check_rate_limit, get_rate_limiter
 from src.middleware.audit import AuditContext, close_audit_logger, get_audit_logger
 from src.tools.remember import remember, REMEMBER_SPEC
 from src.tools.recall import recall, RECALL_SPEC
-from src.tools.consolidate import consolidate_session, CONSOLIDATE_SPEC
-from src.tools.analyze import analyze_evolution, ANALYZE_SPEC
-from src.tools.export import export_memories, EXPORT_SPEC
-from src.tools.delete import delete_memory, DELETE_SPEC
+from src.tools.consolidate import consolidate_session, CONSOLIDATE_SESSION_SPEC
+from src.tools.analyze import analyze_evolution, ANALYZE_EVOLUTION_SPEC
+from src.tools.export import export_memories, EXPORT_MEMORIES_SPEC
+from src.tools.delete import delete_memory, DELETE_MEMORY_SPEC
 from src.tools.refine import refine_knowledge, REFINE_SPEC
 
 # Configure structured logging
