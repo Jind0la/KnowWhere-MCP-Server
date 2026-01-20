@@ -94,6 +94,42 @@ class LLMService:
         else:
             return await self._complete_openai(prompt, system, max_tokens, temperature)
     
+    async def classify_memory_type(self, text: str) -> "MemoryType":
+        """
+        Classifies the memory type based on content.
+        
+        Args:
+            text: Memory content
+            
+        Returns:
+            MemoryType
+        """
+        from src.models.memory import MemoryType
+        
+        system = """You are an expert librarian specializing in knowledge categorization.
+Classify the given text into one of these categories:
+- preference: Personal likes, dislikes, habits, or favorites.
+- procedural: How-to, instructions, processes, or recipes.
+- episodic: Past events, experiences, or specific occurrences.
+- meta: Information about the memory system itself or the process of learning.
+- semantic: General facts, knowledge, concepts, or information.
+
+Return ONLY the category name as a plain string."""
+
+        prompt = f"""Classify this memory:
+"{text}"
+
+Category:"""
+
+        response = await self.complete(prompt, system, max_tokens=32, temperature=0.1)
+        cleaned = response.strip().lower()
+        
+        for m_type in MemoryType:
+            if m_type.value in cleaned:
+                return m_type
+                
+        return MemoryType.SEMANTIC
+
     async def _complete_anthropic(
         self,
         prompt: str,

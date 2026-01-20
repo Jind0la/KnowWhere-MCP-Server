@@ -90,7 +90,7 @@ class MemoryProcessor:
         self,
         user_id: UUID,
         content: str,
-        memory_type: MemoryType,
+        memory_type: MemoryType | None = None,
         entities: list[str] | None = None,
         importance: int | None = None,
         confidence: float = 0.8,
@@ -133,6 +133,22 @@ class MemoryProcessor:
             tuple of (Memory, status string)
             status can be: "created", "updated", "refined"
         """
+        # 1. Generate embedding if not provided
+        if embedding is None:
+            embedding_service = await self._get_embedding_service()
+            embedding = await embedding_service.embed(content)
+
+        # 2. Classify Memory Type if not provided
+        if memory_type is None:
+            from src.services.llm import get_llm_service
+            try:
+                llm_service = await get_llm_service()
+                memory_type = await llm_service.classify_memory_type(content)
+                logger.info("Auto-classified memory type", type=memory_type.value)
+            except Exception as e:
+                logger.warning("Auto-classification of type failed, defaulting to semantic", error=str(e))
+                memory_type = MemoryType.SEMANTIC
+
         logger.info(
             "Processing memory",
             user_id=str(user_id),
@@ -140,12 +156,7 @@ class MemoryProcessor:
             content_length=len(content),
         )
 
-        # 1. Generate embedding if not provided
-        if embedding is None:
-            embedding_service = await self._get_embedding_service()
-            embedding = await embedding_service.embed(content)
-
-        # 2. Calculate importance if not provided
+        # 3. Calculate importance if not provided
         if importance is None:
             importance = self._calculate_importance(content, memory_type, entities)
 

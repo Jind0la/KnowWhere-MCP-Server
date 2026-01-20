@@ -36,9 +36,9 @@ settings = get_settings()
 
 class MemoryCreateRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=8000)
-    memory_type: str = Field(..., description="episodic, semantic, preference, procedural, meta")
+    memory_type: str | None = Field(default=None, description="episodic, semantic, preference, procedural, meta. If None, it will be auto-classified.")
     entities: list[str] = Field(default_factory=list)
-    importance: int = Field(default=5, ge=1, le=10)
+    importance: int | None = Field(default=None, ge=1, le=10)
     domain: str | None = None
     category: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

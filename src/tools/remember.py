@@ -26,9 +26,9 @@ logger = structlog.get_logger(__name__)
 async def remember(
     user_id: UUID,
     content: str,
-    memory_type: str,
+    memory_type: str | None = None,
     entities: list[str] | None = None,
-    importance: int = 5,
+    importance: int | None = None,
     metadata: dict[str, Any] | None = None,
     skip_duplicate_check: bool = False,
 ) -> RememberOutput:
@@ -44,9 +44,9 @@ async def remember(
     Args:
         user_id: The user who owns this memory
         content: The memory content (what to remember)
-        memory_type: Type of memory (episodic, semantic, preference, procedural, meta)
+        memory_type: Optional type (auto-classified if None)
         entities: Optional list of related entities (auto-extracted if not provided)
-        importance: Importance level 1-10 (default: 5)
+        importance: Optional importance level (auto-calculated if None)
         metadata: Optional additional metadata
         skip_duplicate_check: Skip duplicate detection (for imports/migrations)
         
@@ -60,31 +60,31 @@ async def remember(
         content_length=len(content),
     )
     
-    # Validate and convert memory type
-    try:
-        mem_type = MemoryType(memory_type.lower())
-    except ValueError:
-        raise ValueError(
-            f"Invalid memory_type: {memory_type}. "
-            f"Must be one of: episodic, semantic, preference, procedural, meta"
-        )
+    # Validate and convert memory type if provided
+    mem_type = None
+    if memory_type:
+        try:
+            mem_type = MemoryType(memory_type.lower())
+        except ValueError:
+            raise ValueError(
+                f"Invalid memory_type: {memory_type}. "
+                f"Must be one of: episodic, semantic, preference, procedural, meta"
+            )
     
-    # Validate importance
-    importance = max(1, min(10, importance))
+    # Validate importance if provided
+    if importance is not None:
+        importance = max(1, min(10, importance))
     
     # Use MemoryProcessor for all logic (Deduplication, Conflict, Entity/Graph)
-    # v1.3.0 "Magic" consolidated here
     processor = MemoryProcessor()
     
-    # Check if similarity is already computed via skip_duplicate_check (optional optimization)
-    # But for simplicity and consistency, we let the processor handle it
     memory, proc_status = await processor.process_memory(
         user_id=user_id,
         content=content,
         memory_type=mem_type,
-        entities=entities, # Pass user-provided entities
+        entities=entities,
         importance=importance,
-        source=MemorySource.MANUAL, # MCP tool calls are manual instructions
+        source=MemorySource.MANUAL,
         metadata=metadata or {},
         embedding=None,
     )
@@ -108,7 +108,7 @@ async def remember(
 # Tool specification for MCP
 REMEMBER_SPEC = {
     "name": "remember",
-    "description": "Store a new memory in Knowwhere. Use this to remember facts, preferences, learnings, or procedures about the user.",
+    "description": "Store a new memory in Knowwhere. Use this to remember facts, preferences, learnings, or procedures. Attributes like type and importance are automatically determined by the system if not provided.",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -121,25 +121,24 @@ REMEMBER_SPEC = {
             "memory_type": {
                 "type": "string",
                 "enum": ["episodic", "semantic", "preference", "procedural", "meta"],
-                "description": "Type of memory: episodic (specific events), semantic (facts), preference (user preferences), procedural (how-to), meta (about user's knowledge)",
+                "description": "Optional: Type of memory. If omitted, the Librarian will auto-classify it.",
             },
             "entities": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Related entities/concepts (auto-extracted if not provided)",
+                "description": "Optional: Related entities/concepts (auto-extracted if not provided)",
             },
             "importance": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 10,
-                "default": 5,
-                "description": "Importance level (1=least, 10=most)",
+                "description": "Optional: Importance level (1-10). If omitted, the Librarian will auto-calculate it.",
             },
             "metadata": {
                 "type": "object",
                 "description": "Additional custom metadata",
             },
         },
-        "required": ["content", "memory_type"],
+        "required": ["content"],
     },
 }

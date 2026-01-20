@@ -137,7 +137,7 @@ class ApiClient {
 
   async createMemory(data: {
     content: string;
-    memory_type: string;
+    memory_type?: string;
     entities?: string[];
     importance?: number;
     domain?: string;
