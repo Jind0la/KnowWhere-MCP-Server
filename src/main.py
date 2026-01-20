@@ -686,7 +686,7 @@ async def mcp_refine_knowledge(
         tool_name="refine_knowledge",
         user_id=user_id,
         operation_func=refine_knowledge,
-        memory_id=UUID(memory_id),
+        memory_id=memory_id,
         new_content=new_content,
         reason=reason,
     )
