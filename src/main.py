@@ -434,6 +434,13 @@ async def mcp_recall(
         
         result["memories"] = filtered_memories
         result["count"] = len(filtered_memories)
+        # Final safety check: remove any leftover embedding keys
+        for m in result.get("memories", []):
+            if "embedding" in m:
+                del m["embedding"]
+                
+        result["_debug_compact_mode"] = True
+        result["_server_version"] = "1.2.0-ULTRA-COMPACT"
     
     return result
 
@@ -1065,8 +1072,8 @@ def main():
             return {
                 "status": "healthy", 
                 "service": "knowwhere-mcp",
-                "version": "1.1.0-af19f02",
-                "commit": "af19f02"
+                "version": "1.2.0-ULTRA-COMPACT",
+                "features": ["compact_mode", "relevance_threshold", "evolution_fix"]
             }
         
         # Mount the MCP server as a sub-application
@@ -1100,8 +1107,8 @@ async def run_server():
 
 @mcp.resource("system://version")
 def get_version() -> str:
-    """Get the current server version and commit hash."""
-    return "KnowWhere MCP Server v1.1.0 (Commit: af19f02). Features: CompactMode, RelevanceThreshold, EvolutionFix"
+    """Get the current server version and capabilities."""
+    return "KnowWhere MCP Server v1.2.0-ULTRA-COMPACT. Features: CompactMode, RelevanceThreshold, EvolutionFix"
 
 
 if __name__ == "__main__":
