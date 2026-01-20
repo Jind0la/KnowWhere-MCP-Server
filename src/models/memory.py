@@ -35,6 +35,7 @@ class MemoryStatus(str, Enum):
     ACTIVE = "active"
     ARCHIVED = "archived"
     DELETED = "deleted"
+    SUPERSEDED = "superseded"
 
 
 class MemorySource(str, Enum):
@@ -209,4 +210,5 @@ class MemoryUpdate(BaseModel):
     importance: int | None = Field(default=None, ge=1, le=10)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     status: MemoryStatus | None = None
+    superseded_by: UUID | None = None
     metadata: dict[str, Any] | None = None

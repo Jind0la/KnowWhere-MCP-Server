@@ -24,10 +24,11 @@ from src.middleware.rate_limit import check_rate_limit, get_rate_limiter
 from src.middleware.audit import AuditContext, close_audit_logger, get_audit_logger
 from src.tools.remember import remember, REMEMBER_SPEC
 from src.tools.recall import recall, RECALL_SPEC
-from src.tools.consolidate import consolidate_session, CONSOLIDATE_SESSION_SPEC
-from src.tools.analyze import analyze_evolution, ANALYZE_EVOLUTION_SPEC
-from src.tools.export import export_memories, EXPORT_MEMORIES_SPEC
-from src.tools.delete import delete_memory, DELETE_MEMORY_SPEC
+from src.tools.consolidate import consolidate_session, CONSOLIDATE_SPEC
+from src.tools.analyze import analyze_evolution, ANALYZE_SPEC
+from src.tools.export import export_memories, EXPORT_SPEC
+from src.tools.delete import delete_memory, DELETE_SPEC
+from src.tools.refine import refine_knowledge, REFINE_SPEC
 
 # Configure structured logging
 structlog.configure(
@@ -645,13 +646,49 @@ async def mcp_delete_memory(
         hard_delete: True = permanent, False = soft-delete (default)
     """
     user_id = get_user_id_from_context(metadata=_metadata)
-    
     return await with_auth_and_audit(
         tool_name="delete_memory",
         user_id=user_id,
         operation_func=delete_memory,
         memory_id=UUID(memory_id),
         hard_delete=hard_delete,
+    )
+
+
+@mcp.tool()
+async def mcp_refine_knowledge(
+    memory_id: str,
+    new_content: str,
+    reason: str | None = None,
+    _metadata: dict | None = None,
+) -> dict[str, Any]:
+    """
+    💎 Korrigiere oder verfeinere eine existierende Memory. 
+    
+    WANN NUTZEN:
+    - User korrigiert ein Missverständnis
+    - Informationen haben sich weiterentwickelt
+    - Ein Fakt wurde präzisiert
+    
+    VORTZUG GEGENÜBER LÖSCHEN:
+    - Die Historie bleibt erhalten (Learning History)
+    - Die alte Memory wird als "superseded" archiviert
+    - Die neue Memory wird automatisch verknüpft
+    
+    Args:
+        memory_id: UUID der Memory (aus mcp_recall)
+        new_content: Der korrigierte oder erweiterte Inhalt
+        reason: Optionaler Grund für die Korrektur (z.B. 'User Korrektur')
+    """
+    user_id = get_user_id_from_context(metadata=_metadata)
+    
+    return await with_auth_and_audit(
+        tool_name="refine_knowledge",
+        user_id=user_id,
+        operation_func=refine_knowledge,
+        memory_id=UUID(memory_id),
+        new_content=new_content,
+        reason=reason,
     )
 
 

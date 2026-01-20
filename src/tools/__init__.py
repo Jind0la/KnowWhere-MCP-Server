@@ -1,21 +1,15 @@
 """
-MCP Tool Implementations
-
-The 6 core tools exposed via MCP:
-- remember: Store a new memory
-- recall: Search and retrieve memories
-- consolidate_session: Process conversation transcript
-- analyze_evolution: Track preference/knowledge evolution
-- export_memories: Export user memories
-- delete_memory: GDPR-compliant deletion
+Knowwhere Tools Implementation
+Exposes all MCP tools.
 """
 
-from src.tools.remember import remember
-from src.tools.recall import recall
-from src.tools.consolidate import consolidate_session
-from src.tools.analyze import analyze_evolution
-from src.tools.export import export_memories
-from src.tools.delete import delete_memory
+from src.tools.remember import REMEMBER_SPEC, remember
+from src.tools.recall import RECALL_SPEC, recall
+from src.tools.consolidate import CONSOLIDATE_SPEC, consolidate_session
+from src.tools.analyze import ANALYZE_SPEC, analyze_evolution
+from src.tools.export import EXPORT_SPEC, export_memories
+from src.tools.delete import DELETE_SPEC, delete_memory
+from src.tools.refine import REFINE_SPEC, refine_knowledge
 
 __all__ = [
     "remember",
@@ -24,4 +18,12 @@ __all__ = [
     "analyze_evolution",
     "export_memories",
     "delete_memory",
+    "refine_knowledge",
+    "REMEMBER_SPEC",
+    "RECALL_SPEC",
+    "CONSOLIDATE_SPEC",
+    "ANALYZE_SPEC",
+    "EXPORT_SPEC",
+    "DELETE_SPEC",
+    "REFINE_SPEC",
 ]

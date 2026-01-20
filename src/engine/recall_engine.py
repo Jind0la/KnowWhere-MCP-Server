@@ -250,12 +250,15 @@ class RecallEngine:
                 edge_type=EdgeType.EVOLVES_INTO,
             )
             
-            if edges:
+            if edges or (hasattr(memory, 'superseded_by') and memory.superseded_by is not None):
                 # This memory has evolved into something newer
                 obsolete_ids.add(memory.id)
                 
                 # Check if the newer version is already in results
                 newer_ids = {e.to_node_id for e in edges}
+                if hasattr(memory, 'superseded_by') and memory.superseded_by:
+                    newer_ids.add(memory.superseded_by)
+                    
                 if not newer_ids.intersection(memory_ids):
                     # The newer version is NOT in results - we should warn
                     logger.debug(
