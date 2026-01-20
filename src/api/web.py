@@ -107,7 +107,7 @@ origins = [o for o in origins if o]  # Remove empty strings
 # Vercel preview deployments pattern matching
 import re
 VERCEL_PREVIEW_PATTERN = re.compile(
-    r"^https://know-where-mcp-server-.*\.vercel\.app$"
+    r"^https://know-where-mcp-server(-.*)?\.vercel\.app$"
 )
 
 def cors_allow_origin(origin: str) -> bool:
@@ -122,7 +122,7 @@ def cors_allow_origin(origin: str) -> bool:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://know-where-mcp-server-.*\.vercel\.app",
+    allow_origin_regex=r"https://know-where-mcp-server(-.*)?\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -353,7 +353,7 @@ async def create_memory(
     memory, status = await processor.process_memory(
         user_id=user.id,
         content=data.content,
-        memory_type=MemoryType(data.memory_type),
+        memory_type=MemoryType(data.memory_type) if data.memory_type else None,
         entities=data.entities,
         importance=data.importance,
         embedding=embedding,
