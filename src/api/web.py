@@ -63,13 +63,6 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
 
 
-class ListenStreamRequest(BaseModel):
-    conversation_id: str
-    role: str = Field(..., pattern="^(user|assistant)$")
-    content: str
-
-class MemoryFeedback(BaseModel):
-    action: str = Field(..., pattern="^(approve|reject)$")
 
 
 class ApiKeyCreateRequest(BaseModel):
@@ -141,12 +134,7 @@ from fastapi import APIRouter
 router = APIRouter(prefix="/api")
 
 
-async def get_shadow_listener():
-    """Get ShadowListener instance from container."""
-    from src.config import get_container
-    from src.engine.shadow_listener import ShadowListener
-    container = get_container()
-    return await container.resolve(ShadowListener)
+# Shadow Listener removed - Lean MCP Memory strategy
 
 
 # =============================================================================
@@ -245,66 +233,7 @@ async def test_connection(user: CurrentUser = Depends(get_current_user)):
     }
 
 
-# =============================================================================
-# Stream / Shadow Listener Endpoints
-# =============================================================================
-
-@router.post("/listen/stream")
-async def listen_stream(
-    request: ListenStreamRequest,
-    user: CurrentUser = Depends(get_current_user),
-    listener: Any = Depends(get_shadow_listener)
-):
-    """
-    Receive a conversation chunk for background memory extraction.
-    """
-    await listener.listen(
-        user_id=user.id,
-        conversation_id=request.conversation_id,
-        role=request.role,
-        chunk=request.content
-    )
-    return {"status": "accepted"}
-
-@router.post("/memories/{memory_id}/feedback")
-async def memory_feedback(
-    memory_id: UUID,
-    feedback: MemoryFeedback,
-    user: CurrentUser = Depends(get_current_user)
-):
-    """
-    Provide user feedback (approve/reject) for a draft memory.
-    """
-    from src.storage.repositories.memory_repo import MemoryRepository
-    db = await get_database()
-    repo = MemoryRepository(db)
-    
-    # Verify memory exists and belongs to user
-    memory = await repo.get_by_id(memory_id, user.id)
-    if not memory:
-        # Check draft status specifically
-        drafts = await repo.list_by_user(user.id, status=MemoryStatus.DRAFT)
-        memory = next((m for m in drafts if m.id == memory_id), None)
-        
-    if not memory:
-        raise HTTPException(status_code=404, detail="Memory not found")
-        
-    if feedback.action == "approve":
-        update_data = MemoryUpdate(status=MemoryStatus.ACTIVE, confidence=1.0)
-        await repo.update(memory_id, user.id, update_data)
-        logger.info("Memory approved by user", memory_id=str(memory_id), user_id=str(user.id))
-        
-        # Invalidate cache
-        from src.storage.cache import get_cache
-        cache = await get_cache()
-        await cache.invalidate_user_cache(str(user.id))
-    else:
-        # Reject: Mark as deleted or archived
-        update_data = MemoryUpdate(status=MemoryStatus.DELETED)
-        await repo.update(memory_id, user.id, update_data)
-        logger.info("Memory rejected by user", memory_id=str(memory_id), user_id=str(user.id))
-
-    return {"status": "success", "action": feedback.action}
+# Shadow Listener and Review Desk endpoints removed - Lean MCP Memory strategy
 
 
 # =============================================================================

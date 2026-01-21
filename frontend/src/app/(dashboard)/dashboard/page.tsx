@@ -11,9 +11,6 @@ import {
   Plus,
   Search,
   Download,
-  Inbox,
-  CheckCircle2,
-  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { api, type MemoryStats, type Memory } from "@/lib/api";
+import { api, type MemoryStats } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const memoryTypeColors: Record<string, string> = {
@@ -47,8 +44,6 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Memory[]>([]);
-  const [loadingDrafts, setLoadingDrafts] = useState(true);
 
   useEffect(() => {
     const loadStats = async () => {
@@ -65,34 +60,7 @@ export default function DashboardPage() {
     loadStats();
   }, []);
 
-  useEffect(() => {
-    const loadDrafts = async () => {
-      try {
-        const data = await api.getDraftMemories();
-        setDrafts(data.memories);
-      } catch (err) {
-        console.error("Failed to load drafts:", err);
-      } finally {
-        setLoadingDrafts(false);
-      }
-    };
 
-    loadDrafts();
-  }, []);
-
-  const handleFeedback = async (id: string, action: "approve" | "reject") => {
-    try {
-      await api.submitFeedback(id, action);
-      setDrafts(drafts.filter((d) => d.id !== id));
-      // Refresh stats if approved (adds to active count)
-      if (action === "approve") {
-        const data = await api.getStats();
-        setStats(data);
-      }
-    } catch (err) {
-      console.error("Feedback failed:", err);
-    }
-  };
 
   if (loading) {
     return (
@@ -352,82 +320,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Review Desk (Draft Memories) */}
-        <Card className="border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-transparent">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Inbox className="w-5 h-5 text-amber-500" />
-                Review Desk
-              </CardTitle>
-              <CardDescription>
-                Proaktiv erfasste Memories zur Überprüfung
-              </CardDescription>
-            </div>
-            {drafts.length > 0 && (
-              <Badge variant="secondary" className="bg-amber-500/10 text-amber-600">
-                {drafts.length} ausstehend
-              </Badge>
-            )}
-          </CardHeader>
-          <CardContent>
-            {loadingDrafts ? (
-              <div className="space-y-3">
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
-              </div>
-            ) : drafts.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Inbox className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>Keine Drafts zur Überprüfung</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {drafts.slice(0, 5).map((draft) => (
-                  <div
-                    key={draft.id}
-                    className="p-3 border rounded-lg bg-background/50 hover:bg-muted/30 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm line-clamp-2">{draft.content}</p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <Badge
-                            variant="secondary"
-                            className={memoryTypeColors[draft.memory_type]}
-                          >
-                            {memoryTypeLabels[draft.memory_type] || draft.memory_type}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            Konfidenz: {Math.round(draft.confidence * 100)}%
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-emerald-600 hover:bg-emerald-500/10"
-                          onClick={() => handleFeedback(draft.id, "approve")}
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-red-600 hover:bg-red-500/10"
-                          onClick={() => handleFeedback(draft.id, "reject")}
-                        >
-                          <XCircle className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
         {/* Top Entities */}
         <Card>

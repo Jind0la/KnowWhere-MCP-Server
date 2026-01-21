@@ -110,6 +110,10 @@ async def lifespan_context(app):
 # Create FastMCP app with lifespan
 mcp = FastMCP("Knowwhere Memory Server", lifespan=lifespan_context)
 
+# Register MCP prompts for memory-aware conversations
+from src.prompts import register_prompts
+register_prompts(mcp)
+
 
 # =============================================================================
 # Authentication & Rate Limiting
