@@ -255,15 +255,18 @@ async def list_memories(
     repo = MemoryRepository(db)
 
     # Parse status if provided
-    memory_status = None
-    if status:
+    # Parse status if provided
+    memory_status = MemoryStatus.ACTIVE
+    if status == "all" or status == "None":
+        memory_status = None
+    elif status:
         try:
             memory_status = MemoryStatus(status)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
 
     # Get memories
-    memories = await repo.list_by_user(user.id, limit=limit + 1, offset=offset, status=memory_status if memory_status else MemoryStatus.ACTIVE)
+    memories = await repo.list_by_user(user.id, limit=limit + 1, offset=offset, status=memory_status)
 
     # Apply filters
     if memory_type:
@@ -582,8 +585,8 @@ async def get_graph_edges(
     edge_repo = EdgeRepository(db)
     memory_repo = MemoryRepository(db)
 
-    # Get all user memories
-    all_memories = await memory_repo.list_by_user(user.id, limit=1000)
+    # Get all user memories (including irrelevant/stale for graph visibility)
+    all_memories = await memory_repo.list_by_user(user.id, limit=1000, status=None)
     memory_ids = {m.id for m in all_memories}
 
     if memory_id:

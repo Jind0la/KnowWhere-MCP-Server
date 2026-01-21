@@ -199,22 +199,32 @@ class MemoryRepository:
         limit: int = 100,
         offset: int = 0,
         memory_type: MemoryType | None = None,
-        status: MemoryStatus = MemoryStatus.ACTIVE,
+        status: MemoryStatus | None = MemoryStatus.ACTIVE,
     ) -> list[Memory]:
-        """List memories for a user."""
-        conditions = ["user_id = $1", "status = $2"]
-        params: list[Any] = [user_id, status.value]
+        """List memories for a user. If status is None, returns all non-deleted memories."""
+        conditions = ["user_id = $1"]
+        params: list[Any] = [user_id]
+        param_idx = 2
+
+        if status:
+            conditions.append(f"status = ${param_idx}")
+            params.append(status.value)
+            param_idx += 1
+        else:
+            conditions.append("status NOT IN ('deleted', 'superseded')")
         
         if memory_type is not None:
-            conditions.append("memory_type = $3")
+            conditions.append(f"memory_type = ${param_idx}")
             params.append(memory_type.value)
+            param_idx += 1
         
         query = f"""
             SELECT * FROM memories
             WHERE {' AND '.join(conditions)}
             ORDER BY created_at DESC
-            LIMIT {limit} OFFSET {offset}
+            LIMIT ${param_idx} OFFSET ${param_idx + 1}
         """
+        params.extend([limit, offset])
         
         rows = await self.db.fetch(query, *params)
         return [self._row_to_memory(row) for row in rows]
@@ -324,7 +334,7 @@ class MemoryRepository:
         query = """
             SELECT DISTINCT jsonb_array_elements_text(entities) as entity
             FROM memories
-            WHERE user_id = $1 AND status = 'active'
+            WHERE user_id = $1 AND status NOT IN ('deleted', 'superseded')
             LIMIT $2
         """
         rows = await self.db.fetch(query, user_id, limit)
@@ -345,7 +355,7 @@ class MemoryRepository:
                 MIN(created_at) as first_memory_date,
                 SUM(access_count) as total_accesses
             FROM memories
-            WHERE user_id = $1 AND status = 'active'
+            WHERE user_id = $1 AND status NOT IN ('deleted', 'superseded')
         """
 
         row = await self.db.fetchrow(query, user_id)
