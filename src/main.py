@@ -29,6 +29,7 @@ from src.tools.analyze import analyze_evolution, ANALYZE_EVOLUTION_SPEC
 from src.tools.export import export_memories, EXPORT_MEMORIES_SPEC
 from src.tools.delete import delete_memory, DELETE_MEMORY_SPEC
 from src.tools.refine import refine_knowledge, REFINE_SPEC
+from src.tools.update import update_memory, UPDATE_MEMORY_SPEC
 
 # Configure structured logging
 structlog.configure(
@@ -669,6 +670,23 @@ async def mcp_delete_memory(
         operation_func=delete_memory,
         memory_id=UUID(memory_id),
         hard_delete=hard_delete,
+    )
+
+
+@mcp.tool(name=UPDATE_MEMORY_SPEC["name"], description=UPDATE_MEMORY_SPEC["description"])
+async def mcp_update_memory(
+    memory_id: str,
+    status: str | None = None,
+    importance: int | None = None,
+    memory_type: str | None = None,
+) -> dict[str, Any]:
+    """Updates specific fields of an existing memory."""
+    return await with_auth_and_audit(
+        update_memory,
+        memory_id=memory_id,
+        status=status,
+        importance=importance,
+        memory_type=memory_type
     )
 
 
