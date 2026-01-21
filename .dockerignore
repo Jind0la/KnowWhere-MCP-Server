@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node/Frontend
+node_modules/
+dist/
+.next/
+out/
+build/
+
+# IDEs
+.vscode/
+.idea/
+
+# KnowWhere Specific
+.gemini/
+*.log
+server.log
+test_meta_extraction.py
+verify_librarian.py
+scripts/verify_shadow_listener.py
+data/
+uploads/

@@ -1,7 +1,7 @@
 # Knowwhere Memory MCP Server
 # Production Dockerfile
 
-FROM python:3.11-slim as builder
+FROM python:3.12-slim as builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,19 +18,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy and install requirements
+# Copy requirements and install
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH="/app"
+    PYTHONPATH="/app" \
+    MCP_TRANSPORT=sse \
+    HOST=0.0.0.0 \
+    PORT=8000
 
 # Create non-root user
 RUN groupadd --gid 1000 appgroup && \
@@ -42,8 +45,11 @@ COPY --from=builder /opt/venv /opt/venv
 # Set work directory
 WORKDIR /app
 
-# Copy application code
+# Copy application code (respecting .dockerignore)
 COPY --chown=appuser:appgroup . .
+
+# Create uploads directory with correct permissions
+RUN mkdir -p /app/uploads && chown appuser:appgroup /app/uploads
 
 # Switch to non-root user
 USER appuser
