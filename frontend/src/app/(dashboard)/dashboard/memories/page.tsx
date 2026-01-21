@@ -343,7 +343,7 @@ export default function MemoriesPage() {
                 {memories.map((memory) => (
                   <TableRow
                     key={memory.id}
-                    className={memory.status === 'superseded' ? 'opacity-60 bg-muted/30' : ''}
+                    className={(memory.status === 'superseded' || memory.status === 'irrelevant' || memory.status === 'stale') ? 'opacity-60 bg-muted/20' : ''}
                   >
                     <TableCell>
                       <Badge
