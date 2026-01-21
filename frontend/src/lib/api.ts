@@ -205,6 +205,7 @@ class ApiClient {
         entities?: string[];
         domain?: string;
         category?: string;
+        status: string;
       }>;
     }>(`/api/graph/edges${query}`);
   }

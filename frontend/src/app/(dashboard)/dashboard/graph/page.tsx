@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Network, RefreshCw, ZoomIn, ZoomOut, Maximize2, ChevronDownSquare, ChevronUpSquare } from "lucide-react";
+import { Network, RefreshCw, ZoomIn, ZoomOut, Maximize2, ChevronDownSquare, ChevronUpSquare, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -62,6 +62,7 @@ interface GraphNode {
   entities?: string[];
   domain?: string;
   category?: string;
+  status: string;
 }
 
 interface GraphData {
@@ -77,6 +78,7 @@ export default function KnowledgeGraphPage() {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [edgeFilter, setEdgeFilter] = useState<string>("all");
+  const [showIrrelevant, setShowIrrelevant] = useState<boolean>(false);
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
 
   // Entity Navigation State (D+B)
@@ -325,19 +327,32 @@ export default function KnowledgeGraphPage() {
         }
 
         if (isVisible) {
+          // Visibility by status
+          if (node.status === "irrelevant" && !showIrrelevant) {
+            return;
+          }
+
           // Check if this node should be highlighted (D+B Entity Navigation)
           const isHighlighted = highlightedMemories.has(node.id);
+          const isIrrelevant = node.status === "irrelevant";
+          const isStale = node.status === "stale";
 
           nodes.push({
             id: node.id,
             label: node.content.length > 20 ? node.content.substring(0, 20) + "..." : node.content,
-            title: node.content,
+            title: `[${node.status.toUpperCase()}] ${node.content}`,
             color: isHighlighted
               ? { background: "#22c55e", border: "#15803d" } // Green highlight
-              : nodeTypeColors[node.memory_type] || "#94a3b8",
+              : isIrrelevant
+                ? { background: "#94a3b840", border: "#94a3b880" } // Dimmed gray
+                : isStale
+                  ? { background: "#f9731640", border: "#f97316" } // Orange tint
+                  : nodeTypeColors[node.memory_type] || "#94a3b8",
             value: isHighlighted ? node.importance + 5 : node.importance, // Make highlighted nodes bigger
             shape: "dot",
-            borderWidth: isHighlighted ? 4 : 2,
+            borderWidth: isHighlighted ? 4 : (isStale ? 3 : 2),
+            opacity: isIrrelevant ? 0.4 : 1.0,
+            font: { color: isIrrelevant ? "#94a3b8" : "#334155" },
           });
         }
       });
@@ -476,7 +491,7 @@ export default function KnowledgeGraphPage() {
         (networkRef.current as { destroy: () => void }).destroy();
       }
     };
-  }, [graphData, loading, edgeFilter, expandedClusters, highlightedMemories]);
+  }, [graphData, loading, edgeFilter, expandedClusters, highlightedMemories, showIrrelevant]);
 
   const handleZoomIn = () => {
     if (networkRef.current) {
@@ -595,6 +610,15 @@ export default function KnowledgeGraphPage() {
                       title="Alle einklappen"
                     >
                       <ChevronUpSquare className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowIrrelevant(!showIrrelevant)}
+                      className={`h-8 w-8 ${showIrrelevant ? "text-red-500" : "text-muted-foreground"}`}
+                      title={showIrrelevant ? "Irrelevante ausblenden" : "Irrelevante einblenden"}
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>

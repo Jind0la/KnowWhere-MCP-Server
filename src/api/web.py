@@ -604,6 +604,7 @@ async def get_graph_edges(
             "entities": mem.entities,
             "domain": mem.domain,
             "category": mem.category,
+            "status": mem.status.value,
         })
 
     # Add virtual User Profile node

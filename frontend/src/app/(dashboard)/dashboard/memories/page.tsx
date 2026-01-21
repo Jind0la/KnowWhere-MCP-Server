@@ -72,6 +72,8 @@ const statusColors: Record<string, string> = {
   archived: "bg-amber-500/10 text-amber-500 border-amber-500/20",
   superseded: "bg-gray-500/10 text-gray-500 border-gray-500/20",
   deleted: "bg-red-500/10 text-red-500 border-red-500/20",
+  stale: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+  irrelevant: "bg-slate-500/10 text-slate-500 border-slate-500/20 opacity-70",
 };
 
 const ITEMS_PER_PAGE = 10;
@@ -83,13 +85,13 @@ export default function MemoriesPage() {
   const [searchMode, setSearchMode] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [importanceFilter, setImportanceFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("active");
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const loadMemories = useCallback(async () => {
-    // ... existing loadMemories implementation ...
     setLoading(true);
     try {
       const params: {
@@ -97,6 +99,7 @@ export default function MemoriesPage() {
         offset: number;
         memory_type?: string;
         importance_min?: number;
+        status?: string;
       } = {
         limit: ITEMS_PER_PAGE,
         offset: page * ITEMS_PER_PAGE,
@@ -107,6 +110,9 @@ export default function MemoriesPage() {
       }
       if (importanceFilter !== "all") {
         params.importance_min = parseInt(importanceFilter);
+      }
+      if (statusFilter !== "all") {
+        params.status = statusFilter;
       }
 
       const data = await api.getMemories(params);
@@ -119,10 +125,9 @@ export default function MemoriesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, typeFilter, importanceFilter]);
+  }, [page, typeFilter, importanceFilter, statusFilter]);
 
   const searchMemories = useCallback(async () => {
-    // ... existing searchMemories implementation ...
     if (!searchQuery.trim()) {
       setSearchMode(false);
       loadMemories();
@@ -139,6 +144,9 @@ export default function MemoriesPage() {
       if (importanceFilter !== "all") {
         filters.importance_min = parseInt(importanceFilter);
       }
+      if (statusFilter !== "all") {
+        filters.status = statusFilter;
+      }
 
       const data = await api.searchMemories(searchQuery, filters);
       setMemories(data.memories);
@@ -150,7 +158,7 @@ export default function MemoriesPage() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, typeFilter, importanceFilter, loadMemories]);
+  }, [searchQuery, typeFilter, importanceFilter, statusFilter, loadMemories]);
 
   // ... useEffect ...
   useEffect(() => {
@@ -272,6 +280,24 @@ export default function MemoriesPage() {
                   <SelectItem value="8">Hoch (8+)</SelectItem>
                   <SelectItem value="5">Mittel (5+)</SelectItem>
                   <SelectItem value="1">Niedrig (1+)</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => {
+                  setStatusFilter(value);
+                  handleFilterChange();
+                }}
+              >
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Aktiv</SelectItem>
+                  <SelectItem value="stale">Veraltet</SelectItem>
+                  <SelectItem value="irrelevant">Irrelevant</SelectItem>
+                  <SelectItem value="all">Alle</SelectItem>
                 </SelectContent>
               </Select>
             </div>
