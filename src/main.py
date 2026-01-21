@@ -701,6 +701,7 @@ async def mcp_refine_knowledge(
     reason: str | None = None,
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
+    """
     - Die alte Memory wird als "superseded" archiviert
     - Die neue Memory wird automatisch verknüpft
     
