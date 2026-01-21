@@ -52,9 +52,7 @@ logger = structlog.get_logger(__name__)
 # Get settings
 settings = get_settings()
 
-# Module-level state for Shadow Listener (FastMCP doesn't have app.state)
-_shadow_listener = None
-_shadow_cleanup_task = None
+# Module-level state removed - Shadow Listener deprecated per Lean MCP Memory strategy
 
 # =============================================================================
 # Lifecycle Management
@@ -63,7 +61,6 @@ _shadow_cleanup_task = None
 @asynccontextmanager
 async def lifespan_context(app):
     """Manage server lifecycle - connect/disconnect resources."""
-    global _shadow_listener, _shadow_cleanup_task
     logger.info("Starting Knowwhere Memory MCP Server...")
 
     # Initialize dependency container
@@ -89,14 +86,8 @@ async def lifespan_context(app):
         else:
             logger.warning("⚠️ No KNOWWHERE_API_KEY provided - running in dev mode")
 
-        from src.engine.shadow_listener import ShadowListener
-        _shadow_listener = await container.resolve(ShadowListener)
-        
-        # Start background cleanup for thought buffer
-        _shadow_cleanup_task = asyncio.create_task(
-            _shadow_listener.buffer.cleanup_loop()
-        )
-        logger.info("Shadow Listener cleanup loop started")
+        # Shadow Listener removed - Lean MCP Memory strategy
+        # Memory capture now relies on explicit tool calls (remember, consolidate)
 
         logger.info("✅ All services initialized successfully!")
 
@@ -109,9 +100,7 @@ async def lifespan_context(app):
     # Cleanup
     logger.info("Shutting down Knowwhere Memory MCP Server...")
     
-    if _shadow_cleanup_task:
-        _shadow_cleanup_task.cancel()
-        logger.info("Shadow Listener cleanup loop stopped")
+    # Shadow Listener cleanup removed
         
     await close_container()
     await close_audit_logger()
@@ -265,23 +254,8 @@ async def with_auth_and_audit(
             "limit": rate_info.get("limit"),
         }
     
-    # Shadow Listener: Passively capture all MCP tool inputs
-    if _shadow_listener and user_id:
-        try:
-            # Extract content from kwargs (the user's input)
-            content = kwargs.get("content") or kwargs.get("query") or ""
-            if content:
-                from datetime import datetime as dt
-                asyncio.create_task(
-                    _shadow_listener.listen(
-                        user_id=user_id,
-                        conversation_id=f"mcp_session_{str(user_id)[:8]}",
-                        role="user",
-                        chunk=f"[{tool_name}] {content}"
-                    )
-                )
-        except Exception as sl_err:
-            logger.warning("Shadow Listener forwarding failed", error=str(sl_err))
+    # Shadow Listener hook removed - Lean MCP Memory strategy
+    # Memory capture relies on explicit tool calls (mcp_remember, mcp_consolidate)
     
     # Execute with audit logging
     async with AuditContext(user_id, f"tool:{tool_name}") as ctx:
