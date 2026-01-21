@@ -178,6 +178,9 @@ class MemoryProcessor:
         domain = domain.strip().title() if domain else None
         category = category.strip().title() if category else None
 
+        # --- 4. Hygiene Section: Deduplication & Conflict Detection ---
+        repo = await self._get_memory_repo()
+        
         # Search for similar existing memories (matching the intended status)
         # We consider ACTIVE and STALE for refinement, but typically ignore IRRELEVANT
         search_status = status if status in [MemoryStatus.DRAFT, MemoryStatus.ACTIVE] else MemoryStatus.ACTIVE
