@@ -142,7 +142,7 @@ export default function KnowledgeGraphPage() {
   const handleEntityClick = async (entityId: string) => {
     try {
       const data = await api.getEntityMemories(entityId);
-      const memoryIds = new Set(data.memory_ids);
+      const memoryIds = new Set<string>(data.memory_ids);
       setHighlightedMemories(memoryIds);
 
       // Auto-expand domains and categories to show the highlighted memories
