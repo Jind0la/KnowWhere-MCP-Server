@@ -603,9 +603,15 @@ class MemoryProcessor:
             category = category.strip()
             # Ensure "KnowWhere" categories follow module patterns if they look like flat modules
             if domain == "KnowWhere":
-                # If category doesn't have a slash but looks like a module, we could prefix it
-                # but for now we just clean up whitespace and casing
-                pass
+                # Known flat categories that should be under "Source Code"
+                source_modules = [
+                    "Testing", "Database", "Auth", "API", "Frontend", 
+                    "Backend", "Config", "Services", "Core Engine", "Tests"
+                ]
+                if category in source_modules:
+                    category = f"Source Code / {category}"
+                elif category == "Research":
+                    category = "Documentation / Research"
 
         return domain, category
     
