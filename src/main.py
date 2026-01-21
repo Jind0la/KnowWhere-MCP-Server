@@ -679,10 +679,14 @@ async def mcp_update_memory(
     status: str | None = None,
     importance: int | None = None,
     memory_type: str | None = None,
+    _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """Updates specific fields of an existing memory."""
+    user_id = get_user_id_from_context(metadata=_metadata)
     return await with_auth_and_audit(
-        update_memory,
+        tool_name="update_memory",
+        user_id=user_id,
+        operation_func=update_memory,
         memory_id=memory_id,
         status=status,
         importance=importance,
@@ -690,23 +694,13 @@ async def mcp_update_memory(
     )
 
 
-@mcp.tool()
+@mcp.tool(name=REFINE_SPEC["name"], description=REFINE_SPEC["description"])
 async def mcp_refine_knowledge(
     memory_id: str,
     new_content: str,
     reason: str | None = None,
     _metadata: dict | None = None,
 ) -> dict[str, Any]:
-    """
-    💎 Korrigiere oder verfeinere eine existierende Memory. 
-    
-    WANN NUTZEN:
-    - User korrigiert ein Missverständnis
-    - Informationen haben sich weiterentwickelt
-    - Ein Fakt wurde präzisiert
-    
-    VORTZUG GEGENÜBER LÖSCHEN:
-    - Die Historie bleibt erhalten (Learning History)
     - Die alte Memory wird als "superseded" archiviert
     - Die neue Memory wird automatisch verknüpft
     
