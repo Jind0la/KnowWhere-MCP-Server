@@ -178,11 +178,10 @@ class MemoryProcessor:
         domain = domain.strip().title() if domain else None
         category = category.strip().title() if category else None
 
-        # --- 4. Hygiene Section: Deduplication & Conflict Detection ---
-        repo = await self._get_memory_repo()
-        
         # Search for similar existing memories (matching the intended status)
-        similar_memories = await repo.search_similar(embedding, user_id, limit=3, status=status)
+        # We consider ACTIVE and STALE for refinement, but typically ignore IRRELEVANT
+        search_status = status if status in [MemoryStatus.DRAFT, MemoryStatus.ACTIVE] else MemoryStatus.ACTIVE
+        similar_memories = await repo.search_similar(embedding, user_id, limit=3, status=search_status)
         
         for sim in similar_memories:
             # A. Exact or near-exact duplicate (> 0.95 similarity)

@@ -112,6 +112,36 @@ Please extract and save any valuable information."""
         """
         return f"""Before responding about "{topic}", first call mcp_recall to check what you already know about this topic or related subjects. Use this context to provide a more personalized response."""
 
+    @mcp.prompt(
+        name="knowledge_synthesis",
+        description="Prompt for the Librarian to synthesize and prune knowledge. Use for background maintenance."
+    )
+    def knowledge_synthesis() -> str:
+        """
+        Generates a prompt for knowledge synthesis and pruning.
+        This focuses on moving obsolete info to IRRELEVANT status instead of deleting.
+        """
+        return """
+AS THE KNOWWHERE LIBRARIAN:
+
+Your goal is to perform "Knowledge Synthesis" - the process of refining, merging and deprioritizing information.
+
+STEPS:
+1. RECALL & ANALYZE: Call mcp_recall for specific topics or recent memories.
+2. DETECT OBSOLESCENCE: Identify memories that are:
+   - Outdated (e.g., an old version of a project you no longer use)
+   - Redundant (e.g., three different memories saying essentially the same thing)
+   - Low utility (e.g., one-time settings that are no longer relevant)
+3. EVOLVE (Don't just delete):
+   - Use mcp_refine_knowledge to merge redundant memories into a single high-quality one.
+   - For obsolete info: Call mcp_update_memory with status="irrelevant". 
+     *IMPORTANT*: We do not delete knowledge unless it is truly noise. IRRELEVANT status keeps the history but hides it from regular recall.
+4. CALIBRATE (Meta):
+   - If you notice patterns in interaction, create/update a META memory about our collaboration (e.g., "User prefers visual analogies for architecture").
+
+Perform a small batch of synthesis now (max 5-10 memories).
+"""
+
 
 def register_resources(mcp):
     """Register all resources with the FastMCP server."""

@@ -209,7 +209,7 @@ WICHTIGE REGELN:
 4. PERSÖNLICHER FOKUS: Priorisiere persönliche Präferenzen, Entscheidungen und Erkenntnisse
 
 PRIORISIERUNG (von hoch nach niedrig):
-🔴 HOCH: Persönliche Präferenzen, Lieblingsprojekte, Arbeitsweise
+🔴 HOCH: Persönliche Präferenzen, Lieblingsprojekte, Arbeitsweise, Feedback zur KI (Meta)
 🟠 MITTEL: Entscheidungen mit Begründung, Erkenntnisse, Workflows
 🟡 NIEDRIG: Reine Fakten ohne persönlichen Bezug
 ⚪ IGNORIEREN: Triviale Befehle, offensichtliche Schritte, temporäre Zustände
@@ -244,8 +244,9 @@ Für jeden Claim:
    - "project_fact" (Fakt über Projekt/Arbeit)
    - "tool_usage" (aktiv genutzte Tools/Tech)
    - "struggle" (Problem, Herausforderung)
+   - "calibration" (Feedback zur Zusammenarbeit, KI-Stil, Erklärstil)
 5. "entities": Wichtige Entities (max 5)
-6. "importance": Wichtigkeit 1-10 (10 = sehr persönlich/wichtig)
+6. "importance": Wichtigkeit 1-10 (10 = sehr persönlich/wichtig, Meta/Calibration ist meist 7-9)
 
 Transcript:
 ---
@@ -274,15 +275,16 @@ JSON Array (max 10-15 Claims, nur die wichtigsten):"""
                 claim_type = item.get("claim_type", "fact")
                 type_mapping = {
                     "preference": "preference",
-                    "decision": "preference",  # Decisions are often preferences
+                    "decision": "preference",
                     "workflow": "procedural",
                     "insight": "semantic",
                     "project_fact": "semantic",
                     "tool_usage": "semantic",
-                    "struggle": "episodic",
+                    "struggle": "meta",       # Struggles are meta-knowledge about knowledge
+                    "calibration": "meta",    # Calibration is meta-knowledge about the interaction
                     "how_to": "procedural",
                     "fact": "semantic",
-                    "learning": "semantic",
+                    "learning": "meta",       # Learning progress is meta-knowledge
                 }
                 mapped_type = type_mapping.get(claim_type, "semantic")
                 

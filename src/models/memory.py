@@ -37,6 +37,9 @@ class MemoryStatus(str, Enum):
     ARCHIVED = "archived"
     DELETED = "deleted"
     SUPERSEDED = "superseded"
+    IRRELEVANT = "irrelevant"  # Knowledge that is no longer useful but kept for history
+    STALE = "stale"            # Knowledge that might be outdated
+
 
 
 class MemorySource(str, Enum):

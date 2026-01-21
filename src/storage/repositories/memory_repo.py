@@ -151,7 +151,8 @@ class MemoryRepository:
             params.append(status.value)
             param_idx += 1
         else:
-            conditions.append(f"status != 'deleted'")
+            # Default to excluding deleted/superseded if no status provided
+            conditions.append(f"status NOT IN ('deleted', 'superseded')")
         
         if memory_type is not None:
             conditions.append(f"memory_type = ${param_idx}")
