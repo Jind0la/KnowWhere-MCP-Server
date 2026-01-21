@@ -114,19 +114,27 @@ def _parse_filters(filters: dict) -> RecallFilters:
         entity=filters.get("entity"),
         date_range=date_range,
         importance_min=filters.get("importance_min"),
+        domain=filters.get("domain"),
+        category_prefix=filters.get("category_prefix"),
     )
+
 
 
 # Tool specification for MCP
 RECALL_SPEC = {
     "name": "recall",
-    "description": "Search and retrieve memories from Knowwhere using graph-enhanced recall. Respects memory evolution (newer versions preferred), expands via shared entities, and learns from usage patterns.",
+    "description": (
+        "Search and retrieve memories from Knowwhere. "
+        "KnowWhere uses a hierarchical structure (KnowWhere, Personal, General). "
+        "For better precision, you can target specific domains in your query (e.g., 'KnowWhere: deployment' or 'Personal: preference'). "
+        "The tool respects memory evolution, expands via entities, and learns from usage patterns."
+    ),
     "inputSchema": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Search query (natural language)",
+                "description": "Search query (natural language or domain:category prefixed)",
                 "minLength": 1,
                 "maxLength": 1000,
             },
@@ -153,8 +161,18 @@ RECALL_SPEC = {
                         "maximum": 10,
                         "description": "Minimum importance filter",
                     },
+                    "domain": {
+                        "type": "string",
+                        "enum": ["KnowWhere", "Personal", "General"],
+                        "description": "Filter by domain",
+                    },
+                    "category_prefix": {
+                        "type": "string",
+                        "description": "Filter by category prefix (e.g., 'Source Code' finds 'Source Code / Frontend')",
+                    },
                 },
             },
+
             "limit": {
                 "type": "integer",
                 "minimum": 1,

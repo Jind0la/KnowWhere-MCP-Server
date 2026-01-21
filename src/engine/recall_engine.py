@@ -156,6 +156,8 @@ class RecallEngine:
             min_importance=filters.importance_min if filters else None,
             entity=filters.entity if filters else None,
             date_range=filters.date_range.value if filters and filters.date_range else None,
+            domain=filters.domain if filters else None,
+            category_prefix=filters.category_prefix if filters else None,
         )
         
         # Step 3: Filter evolved memories

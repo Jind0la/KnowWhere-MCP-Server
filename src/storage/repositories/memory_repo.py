@@ -124,8 +124,9 @@ class MemoryRepository:
         entity: str | None = None,
         date_range: str | None = None,
         status: MemoryStatus | None = MemoryStatus.ACTIVE,
+        domain: str | None = None,
+        category_prefix: str | None = None,
     ) -> list[MemoryWithSimilarity]:
-        logger.error("SEARCH_SIMILAR CALLED", status=status, user_id=user_id)
         """
         Search for similar memories using vector similarity.
         
@@ -175,6 +176,17 @@ class MemoryRepository:
                 conditions.append(f"created_at >= ${param_idx}")
                 params.append(date_filter)
                 param_idx += 1
+        
+        # Hierarchy filters
+        if domain is not None:
+            conditions.append(f"domain = ${param_idx}")
+            params.append(domain)
+            param_idx += 1
+        
+        if category_prefix is not None:
+            conditions.append(f"category ILIKE ${param_idx}")
+            params.append(f"{category_prefix}%")
+            param_idx += 1
         
         # Add limit to params
         params.append(limit)

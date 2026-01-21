@@ -103,6 +103,15 @@ class RecallFilters(BaseModel):
         le=10,
         description="Minimum importance filter"
     )
+    domain: str | None = Field(
+        default=None,
+        description="Filter by domain (KnowWhere, Personal, General)"
+    )
+    category_prefix: str | None = Field(
+        default=None,
+        description="Filter by category prefix (e.g., 'Source Code' matches 'Source Code / Frontend')"
+    )
+
 
 
 class RecallInput(BaseModel):

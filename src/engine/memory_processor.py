@@ -174,9 +174,8 @@ class MemoryProcessor:
             except Exception as e:
                 logger.warning("Classification failed", error=str(e))
         
-        # Normalize classification
-        domain = domain.strip().title() if domain else None
-        category = category.strip().title() if category else None
+        # --- 3.5 STRICT TAXONOMY VALIDATION ---
+        domain, category = self._validate_and_normalize_taxonomy(domain, category)
 
         # --- 4. Hygiene Section: Deduplication & Conflict Detection ---
         repo = await self._get_memory_repo()
@@ -390,6 +389,12 @@ class MemoryProcessor:
                     content, memory_type, data.get("entities")
                 )
 
+            # Validate and Normalize Taxonomy
+            domain, category = self._validate_and_normalize_taxonomy(
+                data.get("domain"), 
+                data.get("category")
+            )
+
             # Create memory
             memory_create = MemoryCreate(
                 user_id=user_id,
@@ -397,8 +402,8 @@ class MemoryProcessor:
                 memory_type=memory_type,
                 embedding=all_embeddings[i],
                 entities=data.get("entities", []),
-                domain=data.get("domain"),
-                category=data.get("category"),
+                domain=domain,
+                category=category,
                 importance=importance,
                 confidence=data.get("confidence", 0.8),
                 source=data.get("source", MemorySource.CONVERSATION),
@@ -559,6 +564,50 @@ class MemoryProcessor:
         
         # Clamp to valid range
         return max(1, min(10, base))
+
+    def _validate_and_normalize_taxonomy(
+        self, 
+        domain: str | None, 
+        category: str | None
+    ) -> tuple[str, str]:
+        """
+        Strictly enforces the hierarchical taxonomy.
+        Primary Domains: KnowWhere, Personal, General
+        """
+        # 1. Standardize Domain
+        valid_domains = ["KnowWhere", "Personal", "General"]
+        
+        if not domain:
+            domain = "KnowWhere" # Default for this project
+        else:
+            domain = domain.strip().title()
+            # Fix common casing/alias issues
+            if domain == "Knowwhere": domain = "KnowWhere"
+            
+            # Auto-migrate legacy or "rogue" domains to KnowWhere
+            legacy_domains = ["Source Code", "Testing", "Deployment", "Database", "Api", "Frontend", "Backend", "Research"]
+            if domain in legacy_domains:
+                # If a legacy domain was provided as a domain, move it to category prefix
+                category = f"{domain} / {category}" if category else domain
+                domain = "KnowWhere"
+            
+            if domain not in valid_domains:
+                logger.warning("Rogue domain detected, auto-correcting to KnowWhere", original=domain)
+                category = f"{domain} / {category}" if category else domain
+                domain = "KnowWhere"
+
+        # 2. Standardize Category
+        if not category:
+            category = "General"
+        else:
+            category = category.strip()
+            # Ensure "KnowWhere" categories follow module patterns if they look like flat modules
+            if domain == "KnowWhere":
+                # If category doesn't have a slash but looks like a module, we could prefix it
+                # but for now we just clean up whitespace and casing
+                pass
+
+        return domain, category
     
     def infer_memory_type(self, content: str, claim_type: str | None = None) -> MemoryType:
         """

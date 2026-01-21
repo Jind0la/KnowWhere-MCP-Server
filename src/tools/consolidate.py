@@ -105,7 +105,12 @@ async def consolidate_session(
 # Tool specification for MCP
 CONSOLIDATE_SESSION_SPEC = {
     "name": "consolidate_session",
-    "description": "Process a conversation transcript and extract structured memories. This analyzes the conversation to find facts, preferences, and learnings, then stores them as memories.",
+    "description": (
+        "Process a conversation transcript and extract structured memories. "
+        "This analyzes the conversation to find facts, preferences, and learnings, then stores them as memories. "
+        "All extracted memories are automatically aligned to KnowWhere's hierarchical taxonomy "
+        "(KnowWhere, Personal, General domains)."
+    ),
     "inputSchema": {
         "type": "object",
         "properties": {

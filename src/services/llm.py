@@ -600,32 +600,33 @@ JSON Response ({{ "is_contradiction": bool, "confidence": float }}):"""
         existing_categories_str = ", ".join(f'"{c}"' for c in (existing_categories or []))
         
         system = """You are an expert Librarian and Knowledge Architect.
-Your goal is to organize memories into a "Zettelkasten"-like structure.
+Your goal is to organize memories into a hierarchical "Zettelkasten" structure.
 
-RULES:
-1. EXISTING HUBS: Check the provided 'Existing Domains' and 'Existing Categories'.
-   - If the content fits an existing hub, USE IT.
-   - Do NOT create synonyms (e.g., if 'Frontend' exists, do not create 'UI' or 'Front-End').
-   
-2. NEW HUBS: Creates new categories ONLY if the content represents a distinctly new concept.
-   - Use concise, standard names (Title Case).
-   - e.g., "Quantum Computing", "Bioinformatics".
+HIERARCHY RULES:
+1. PRIMARY DOMAINS: Use ONLY these primary domains if possible:
+   - "KnowWhere": For EVERYTHING related to this project (Source Code, API, Frontend, Deployment, Testing, Research).
+   - "Personal": For user-specific facts, bio, preferences, habits, and workflows.
+   - "General": Only for abstract facts or knowledge not tied to the project or user.
 
-3. HIERARCHY:
-   - DOMAIN: High-level scope (e.g. "Source Code", "Personal", "Knowwhere").
-     -> For personal facts/bio, use "Personal" or "Profile".
-   - CATEGORY: Specific topic/functional area (e.g. "Auth", "Database", "Goals").
+2. SPECIFIC CATEGORIES (Standardized):
+   - If Domain is "KnowWhere", categories should follow the pattern: "Source Code / [Module]", "Deployment", "Architecture", "API", etc.
+   - If Domain is "Personal", categories should be: "Profile", "Preferences", "Workflows", "Goals", etc.
+
+3. CONSISTENCY:
+   - Check 'Existing Domains' and 'Existing Categories'. 
+   - DO NOT create new domains like "Source Code" or "Testing" - these are now categories under "KnowWhere".
+   - Avoid synonyms. If "Backend" exists, do not use "Node.js" as a category name unless it's a sub-category.
 
 Return ONLY valid JSON."""
 
-        prompt = f"""Classify this memory.
+        prompt = f"""Classify this memory according to the Hierarchical Taxonomy.
 
 Existing Domains: [{existing_domains_str}]
 Existing Categories: [{existing_categories_str}]
 
-Content: "{text}"
+Memory Content: "{text}"
 
-JSON Response ({{ "domain": "...", "category": "..." }}):"""
+JSON Response ({{ "domain": "KnowWhere" | "Personal" | "General", "category": "..." }}):"""
         
         response = await self.complete(prompt, system, max_tokens=256, temperature=0.1)
         

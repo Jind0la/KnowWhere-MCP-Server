@@ -108,7 +108,14 @@ async def remember(
 # Tool specification for MCP
 REMEMBER_SPEC = {
     "name": "remember",
-    "description": "Store a new memory in Knowwhere. Use this to remember facts, preferences, learnings, or procedures. Attributes like type and importance are automatically determined by the system if not provided.",
+    "description": (
+        "Store a new memory in Knowwhere. Use this to remember facts, preferences, learnings, or procedures. "
+        "KnowWhere uses a hierarchical taxonomy with three primary domains:\n"
+        "- 'KnowWhere': For everything project-related (Source Code, API, Architecture, etc.)\n"
+        "- 'Personal': For user info, bio, preferences, habits, and workflows.\n"
+        "- 'General': For abstract facts not tied to the project or user.\n"
+        "Attributes like type and importance are automatically determined if not provided."
+    ),
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -121,7 +128,7 @@ REMEMBER_SPEC = {
             "memory_type": {
                 "type": "string",
                 "enum": ["episodic", "semantic", "preference", "procedural", "meta"],
-                "description": "Optional: Type of memory. If omitted, the Librarian will auto-classify it.",
+                "description": "Optional: Type of memory. If omitted, the system will auto-classify it.",
             },
             "entities": {
                 "type": "array",
@@ -132,7 +139,7 @@ REMEMBER_SPEC = {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 10,
-                "description": "Optional: Importance level (1-10). If omitted, the Librarian will auto-calculate it.",
+                "description": "Optional: Importance level (1-10). If omitted, the system will auto-calculate it.",
             },
             "metadata": {
                 "type": "object",
