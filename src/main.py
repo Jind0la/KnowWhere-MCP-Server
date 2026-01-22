@@ -1118,27 +1118,6 @@ def main():
         
         mcp_http_app = mcp.http_app()
         
-        class AuthMiddleware(BaseHTTPMiddleware):
-            async def dispatch(self, request: Request, call_next):
-                # Try to extract authentication from headers
-                auth_header = request.headers.get("Authorization")
-                api_key_header_val = request.headers.get("X-API-Key")
-                
-                user_id = await authenticate_request(
-                    bearer_token=auth_header,
-                    api_key=api_key_header_val
-                )
-                
-                if user_id:
-                    # Context is already set in AuthContext by authenticate_request
-                    logger.debug("Request authenticated", user_id=str(user_id), path=request.url.path)
-                
-                try:
-                    response = await call_next(request)
-                    return response
-                except Exception as e:
-                    logger.error("Error in AuthMiddleware", error=str(e))
-                    raise
 
         # Combine FastAPI lifespan with MCP lifespan
         @asynccontextmanager
@@ -1161,6 +1140,26 @@ def main():
             lifespan=combined_lifespan,
         )
         
+        # Authentication Middleware (Decorator style for better context propagation)
+        @combined_app.middleware("http")
+        async def auth_context_middleware(request: Request, call_next):
+            # Try to extract authentication from headers
+            auth_header = request.headers.get("Authorization")
+            api_key_header_val = request.headers.get("X-API-Key")
+            
+            # This sets AuthContext internally
+            await authenticate_request(
+                bearer_token=auth_header,
+                api_key=api_key_header_val
+            )
+            
+            try:
+                response = await call_next(request)
+                return response
+            finally:
+                # We don't clear here to allow SSE streams to maintain context
+                pass
+
         # CORS configuration for frontend
         origins = [
             "http://localhost:3000",
@@ -1183,9 +1182,6 @@ def main():
             allow_headers=["*"],
         )
         
-        # Add AuthMiddleware to handle authentication for all routes
-        combined_app.add_middleware(AuthMiddleware)
-        
         # Include the REST API router
         combined_app.include_router(api_router)
         
@@ -1204,6 +1200,18 @@ def main():
         # =============================================================================
         # We'll use a wrapper to map /sse and /mcp/sse to the correct internal path.
         async def mcp_asgi_wrapper(scope, receive, send):
+            if scope["type"] == "http":
+                # Ensure authentication happens inside the ASGI wrapper for SSE/Mounted flows
+                headers = dict(scope.get("headers", []))
+                auth_header = headers.get(b"authorization", b"").decode("utf-8") or None
+                api_key_header = headers.get(b"x-api-key", b"").decode("utf-8") or None
+                
+                # This will set AuthContext.user for the duration of this ASGI task
+                await authenticate_request(
+                    bearer_token=auth_header,
+                    api_key=api_key_header
+                )
+            
             if scope["type"] == "http" and scope["path"] in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
                 # Map external SSE paths to the internal MCP app route
                 scope["path"] = "/mcp"
