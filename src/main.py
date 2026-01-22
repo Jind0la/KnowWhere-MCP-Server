@@ -1149,28 +1149,7 @@ def main():
         # Include the REST API router
         combined_app.include_router(api_router)
         
-        # =============================================================================
-        # MCP Connection Handling
-        # =============================================================================
-        # We discovered mcp_http_app expects '/mcp' for SSE. 
-        # We'll use a wrapper to map /sse and /mcp/sse to the correct internal path.
-        async def mcp_asgi_wrapper(scope, receive, send):
-            if scope["type"] == "http" and scope["path"] in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
-                # Map external SSE paths to the internal MCP app route
-                scope["path"] = "/mcp"
-            await mcp_http_app(scope, receive, send)
-        
-        # Mount at root to catch all MCP related traffic (/mcp, /messages, etc.)
-        combined_app.mount("/", mcp_asgi_wrapper)
-
-        # Debug: Dump routes to file
-        try:
-            with open("/tmp/mcp_routes.txt", "w") as f:
-                f.write(f"MCP App Routes: {[str(r) for r in mcp_http_app.routes] if hasattr(mcp_http_app, 'routes') else 'no routes'}\n")
-        except:
-            pass
-        logger.info("MCP App Routes", routes=[str(r) for r in mcp_http_app.routes] if hasattr(mcp_http_app, "routes") else "no routes")
-
+        # Helper Endpoints
         @combined_app.get("/health")
         async def health_check():
             return {
@@ -1179,7 +1158,21 @@ def main():
                 "version": "1.3.1-CONNECTIVITY",
                 "features": ["compact_mode", "relevance_threshold", "evolution_fix", "explicit_routing"]
             }
+
+        # =============================================================================
+        # MCP Connection Handling
+        # =============================================================================
+        # We'll use a wrapper to map /sse and /mcp/sse to the correct internal path.
+        async def mcp_asgi_wrapper(scope, receive, send):
+            if scope["type"] == "http" and scope["path"] in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
+                # Map external SSE paths to the internal MCP app route
+                scope["path"] = "/mcp"
+            await mcp_http_app(scope, receive, send)
         
+        # Mount at root to catch all MCP related traffic (/mcp, /messages, etc.)
+        # MUST be after specific routes like /health
+        combined_app.mount("/", mcp_asgi_wrapper)
+
         @combined_app.exception_handler(404)
         async def custom_404_handler(request: Request, exc):
             return JSONResponse(
