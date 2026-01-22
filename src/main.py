@@ -1231,53 +1231,47 @@ def main():
         # =============================================================================
         # MCP Connection Handling
         # =============================================================================
-        # We'll use a wrapper to handle routing and authentication for MCP traffic.
-        # This allows us to support shorthand paths (/sse, /messages) and inject auth.
+        # Robust ASGI wrapper to handle multiple paths (/sse, /messages, /mcp/...)
         async def mcp_asgi_wrapper(scope, receive, send):
             if scope["type"] == "http":
-                # 1. Handle Path Mapping and Normalization
-                original_path = scope.get("path", "")
-                query_string = scope.get("query_string", b"").decode("utf-8")
+                path = scope.get("path", "")
+                query = scope.get("query_string", b"").decode("utf-8")
                 
-                # Determine the target internal path for FastMCP
-                # If hitting the root of a mount point (like /sse or /messages)
-                if original_path in ["", "/", "/sse", "/sse/", "/mcp/sse", "/mcp/sse/"]:
+                # Normalize paths for FastMCP internal app
+                if path in ["/sse", "/sse/", "/mcp/sse", "/mcp/sse/"]:
                     scope["path"] = "/sse"
-                    logger.debug("Routing to MCP SSE", original=original_path, query=query_string)
-                elif original_path in ["/messages", "/messages/", "/mcp/messages", "/mcp/messages/"]:
+                elif path in ["/messages", "/messages/", "/mcp/messages", "/mcp/messages/"]:
                     scope["path"] = "/messages"
-                    logger.debug("Routing to MCP Messages", original=original_path, query=query_string)
-                elif original_path.startswith("/mcp"):
-                    scope["path"] = original_path[4:] or "/"
+                elif path.startswith("/mcp/"):
+                    scope["path"] = path[4:]
                 
-                # 2. Handle Authentication
+                logger.debug(
+                    "MCP Routing", 
+                    original_path=path, 
+                    target_path=scope["path"],
+                    query=query
+                )
+                
+                # Handle Authentication for tool calls
                 headers = dict(scope.get("headers", []))
                 auth_header = headers.get(b"authorization", b"").decode("utf-8") or None
                 api_key_header = headers.get(b"x-api-key", b"").decode("utf-8") or None
                 
-                # This sets AuthContext.user for the duration of this ASGI task
                 try:
                     user_id = await authenticate_request(
                         bearer_token=auth_header,
                         api_key=api_key_header
                     )
                     if user_id:
-                        logger.debug("MCP Auth success", user_id=str(user_id), path=scope["path"])
-                    else:
-                        logger.debug("No active auth session for MCP call", path=scope["path"])
+                        logger.debug("MCP Auth success", user_id=str(user_id))
                 except Exception as e:
-                    logger.warning("MCP Auth failed in ASGI wrapper", error=str(e))
+                    logger.warning("MCP Auth context injection failed", error=str(e))
 
-            # Forward everything to the internal MCP HTTP app
-            # FastMCP's internal app handles the actual SSE and tool execution.
+            # Forward to internal app
             await mcp_http_app(scope, receive, send)
         
-        # Standard MCP endpoint
-        combined_app.mount("/mcp", mcp_http_app)
-        
-        # Shorthand endpoints for compatibility with various clients
-        combined_app.mount("/sse", mcp_asgi_wrapper)
-        combined_app.mount("/messages", mcp_asgi_wrapper)
+        # Mount at root as a catch-all (FastAPI routes like /health and /api take precedence if defined first)
+        combined_app.mount("/", mcp_asgi_wrapper)
 
         @combined_app.exception_handler(404)
         async def custom_404_handler(request: Request, exc):
