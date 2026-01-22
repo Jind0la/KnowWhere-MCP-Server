@@ -326,7 +326,7 @@ async def mcp_remember(
     memory_type: str,
     entities: list[str] | None = None,
     importance: int = 5,
-    metadata: dict[str, Any] | None = None,
+    _metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     💾 SPEICHERE wichtige Informationen über den User für zukünftige Gespräche.
@@ -370,7 +370,7 @@ async def mcp_remember(
         entities: Relevante Begriffe ["Lasagne", "Sarah"] - auto-extrahiert wenn leer
         importance: 1-10 (10=Name, 8=Rezept/Anleitung, 5=normal)
     """
-    user_id = get_user_id_from_context(metadata=metadata)
+    user_id = get_user_id_from_context(metadata=_metadata)
     
     return await with_auth_and_audit(
         tool_name="remember",
@@ -380,7 +380,7 @@ async def mcp_remember(
         memory_type=memory_type,
         entities=entities,
         importance=importance,
-        metadata=metadata,
+        metadata=_metadata,
     )
 
 
