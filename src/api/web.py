@@ -22,8 +22,15 @@ from src.storage.repositories.memory_repo import MemoryRepository
 from src.storage.repositories.user_repo import UserRepository
 from src.storage.repositories.edge_repo import EdgeRepository
 from src.storage.database import get_database
+from src.storage.cache import get_cache
 from src.services.embedding import get_embedding_service
 from src.services.llm import get_llm_service
+from src.services.health_checks.database import PostgresHealthCheck
+from src.services.health_checks.redis import RedisHealthCheck
+from src.services.health_checks.vector import VectorSearchHealthCheck
+from src.services.health_checks.llm import LLMHealthCheck
+from src.models.health import HealthCheckResult
+import asyncio
 from src.models.memory import MemoryType, MemoryCreate, MemoryUpdate, MemoryStatus, MemorySource
 
 logger = structlog.get_logger(__name__)
@@ -852,6 +859,26 @@ app.include_router(router)
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "knowwhere-api"}
+
+@app.get("/health/full", response_model=list[HealthCheckResult], tags=["Health"])
+async def get_full_health():
+    """
+    Run all system health checks in parallel.
+    Returns status and latency for Database, Redis, Vector Search, and LLM Provider.
+    """
+    db = await get_database()
+    cache = await get_cache()
+    llm_service = await get_llm_service()
+    
+    checks = [
+        PostgresHealthCheck(db).check(),
+        RedisHealthCheck(cache).check(),
+        VectorSearchHealthCheck(db).check(),
+        LLMHealthCheck(llm_service).check(),
+    ]
+    
+    results = await asyncio.gather(*checks)
+    return results
 
 
 # =============================================================================
