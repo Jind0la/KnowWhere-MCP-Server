@@ -7,7 +7,7 @@
 - [x] Task: Implement Database Health Check 8589359
     - [ ] Subtask: Write tests for DB connection failure/success
     - [ ] Subtask: Implement asyncpg connection check
-- [ ] Task: Implement Redis Health Check
+- [x] Task: Implement Redis Health Check ef6f600
     - [ ] Subtask: Write tests for Redis ping
     - [ ] Subtask: Implement Redis connectivity check
 - [ ] Task: Implement Vector Search Latency Check
