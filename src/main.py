@@ -1124,7 +1124,7 @@ def main():
         api_app = FastAPI(
             title="Knowwhere REST API",
             description="Integrated Personal Knowledge Engine",
-            version="1.4.3-STABLE",
+            version="1.4.4-STABLE",
         )
 
         # Add CORS to the REST app
@@ -1143,28 +1143,34 @@ def main():
 
         # Add REST-specific routes
         api_app.include_router(api_router)
+        
+        # Add health check to api_app for internal consistency
+        @api_app.get("/health")
+        async def api_health():
+            return {"status": "healthy"}
 
-        # 3. Mount REST API and add health checks to the root app
-        # Mount the REST API at root because it internally handles the /api prefix
-        # This restores /api/stats, /api/onboarding/status, etc.
-        server_app.mount("/", api_app)
-
-        # Add a root health check for Railway/monitoring
+        # 3. Add root-level routes (BEFORE mounting the catch-all "/")
+        # This prevents the mount from shadowing these specific paths
+        
+        # Root health check for Railway
         @server_app.route("/health")
         async def root_health(request: Request):
             return JSONResponse({
                 "status": "healthy",
                 "service": "knowwhere",
-                "version": "1.4.3-STABLE",
+                "version": "1.4.4-STABLE",
                 "mcp": "/sse",
                 "rest": "/api"
             })
 
-        # Add a special handler for POST /sse to prevent discovery noise
-        # 404/405 signals to the client to fall back to GET for SSE
+        # Special handler for POST /sse to prevent discovery noise
         @server_app.route("/sse", methods=["POST"])
         async def sse_post_handler(request: Request):
             return Response("SSE endpoint requires GET. Use /messages for POST.", status_code=405)
+
+        # 4. Mount REST API at root (as a fallback)
+        # We mount this AFTER the specific routes above
+        server_app.mount("/", api_app)
 
         # 4. Integrate SHARED Authentication Middleware
         # This runs on the root Starlette app and covers both MCP and REST
