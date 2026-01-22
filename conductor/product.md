@@ -17,6 +17,8 @@ KnowWhere Memory is a persistent, intelligent memory layer designed to bridge th
 - **Automated Claim Extraction:** Uses LLMs to distill conversation history into actionable facts and preferences.
 - **Semantic Search & Recall:** High-performance vector retrieval using `pgvector` for context-aware memory access.
 - **Cross-Platform MCP Integration:** Standardized communication with AI agents regardless of the underlying model.
+- **System Diagnostics:** Real-time health monitoring dashboard for all critical services (Database, Cache, Vector Search, LLM).
+
 
 ## Long-Term Vision
 - **Platform Dominance:** Establish KnowWhere as the universal memory protocol for the AI agent ecosystem.
