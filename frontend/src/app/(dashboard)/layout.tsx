@@ -16,6 +16,7 @@ import {
   X,
   ChevronDown,
   Plus,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ const navigation = [
   { name: "Memories", href: "/dashboard/memories", icon: Database },
   { name: "Knowledge Graph", href: "/dashboard/graph", icon: Network },
   { name: "API Keys", href: "/dashboard/api-keys", icon: Key },
+  { name: "System Health", href: "/dashboard/diagnostics", icon: Activity },
   { name: "Einstellungen", href: "/dashboard/settings", icon: Settings },
 ];
 
