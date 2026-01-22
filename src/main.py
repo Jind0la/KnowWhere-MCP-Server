@@ -221,6 +221,15 @@ def get_user_id_from_context(
     if auth_user_id:
         return auth_user_id
     
+    logger.warning(
+        "User context resolution failed",
+        auth_context_user_id=str(auth_user_id) if auth_user_id else None,
+        has_metadata=metadata is not None,
+        has_context=context is not None,
+        require_auth=REQUIRE_AUTH,
+        env_auth_id=str(_env_authenticated_user_id) if _env_authenticated_user_id else None
+    )
+    
     # Check metadata
     if metadata and "user_id" in metadata:
         return UUID(metadata["user_id"])
@@ -1190,9 +1199,32 @@ def main():
         # =============================================================================
         # We'll use a wrapper to map /sse and /mcp/sse to the correct internal path.
         async def mcp_asgi_wrapper(scope, receive, send):
+            if scope["type"] == "http":
+                # Debug logging for headers
+                headers = dict(scope.get("headers", []))
+                auth_header = headers.get(b"authorization", b"").decode("utf-8") or None
+                api_key_header = headers.get(b"x-api-key", b"").decode("utf-8") or None
+                
+                logger.debug(
+                    "MCP Wrapper Processing Request",
+                    path=scope.get("path"),
+                    has_auth=auth_header is not None,
+                    has_api_key=api_key_header is not None,
+                    method=scope.get("method")
+                )
+                
+                # Perform authentication in weight-bearing wrapper
+                user_id = await authenticate_request(
+                    bearer_token=auth_header,
+                    api_key=api_key_header
+                )
+                if user_id:
+                    logger.debug("Request authenticated in MCP wrapper", user_id=str(user_id))
+            
             if scope["type"] == "http" and scope["path"] in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
                 # Map external SSE paths to the internal MCP app route
                 scope["path"] = "/mcp"
+            
             await mcp_http_app(scope, receive, send)
         
         # Mount at root to catch all MCP related traffic (/mcp, /messages, etc.)
