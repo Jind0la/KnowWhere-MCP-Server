@@ -13,7 +13,7 @@
 - [x] Task: Implement Vector Search Latency Check ba021b4
     - [ ] Subtask: Write tests for vector search simulation
     - [ ] Subtask: Implement dummy vector search to measure latency
-- [ ] Task: Implement LLM Provider Availability Check
+- [x] Task: Implement LLM Provider Availability Check ced412d
     - [ ] Subtask: Write tests for LLM API ping (mocked)
     - [ ] Subtask: Implement lightweight model list/ping call
 - [ ] Task: Create Aggregated Health Endpoint
