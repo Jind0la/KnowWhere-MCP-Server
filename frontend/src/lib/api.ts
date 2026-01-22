@@ -312,7 +312,7 @@ class ApiClient {
 
   // Health
   async getFullHealth() {
-    return this.fetch<HealthCheckResult[]>("/health/full");
+    return this.fetch<HealthCheckResult[]>("/api/health/full");
   }
 }
 

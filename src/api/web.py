@@ -855,12 +855,12 @@ app.include_router(router)
 # Health Check
 # =============================================================================
 
-@app.get("/health")
+@router.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "knowwhere-api"}
 
-@app.get("/health/full", response_model=list[HealthCheckResult], tags=["Health"])
+@router.get("/health/full", response_model=list[HealthCheckResult], tags=["Health"])
 async def get_full_health():
     """
     Run all system health checks in parallel.
