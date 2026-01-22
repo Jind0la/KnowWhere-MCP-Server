@@ -1116,14 +1116,13 @@ def main():
         from starlette.middleware.base import BaseHTTPMiddleware
         from src.api.web import router as api_router
         
-        mcp_http_app = mcp.http_app()
+        mcp_http_app = mcp.http_app(path="/")
         
-
         # 1. Create the REST API app (FastAPI)
         api_app = FastAPI(
             title="Knowwhere Combined API",
             description="REST API + MCP Server",
-            version="1.3.2-STABILIZED",
+            version="1.3.3-STABILIZED",
         )
 
         # Add CORS to the REST app
@@ -1149,7 +1148,7 @@ def main():
                 "status": "healthy", 
                 "service": "knowwhere-api",
                 "version": api_app.version,
-                "mcp": "available via unified dispatcher"
+                "mcp": "available via unified root"
             }
 
         # Global REST Exception Handler
@@ -1163,8 +1162,6 @@ def main():
         async def unified_app(scope, receive, send):
             # Lifecycle Management (Critical for FastMCP initialization)
             if scope["type"] == "lifespan":
-                # Both apps share the same container initialization via lifespan_context
-                # We forward the lifespan scope to mcp_http_app to ensure it starts correctly
                 await mcp_http_app(scope, receive, send)
                 return
 
@@ -1186,14 +1183,10 @@ def main():
                     except Exception as e:
                         logger.debug("MCP Auth attempt failed", error=str(e))
                     
-                    # Normalize path for internal Starlette routing
-                    if path.endswith("/") and len(path) > 1:
-                        scope["path"] = path[:-1]
-                        
                     await mcp_http_app(scope, receive, send)
                     return
 
-            # All other traffic (REST API, frontend, etc.) goes to FastAPI
+            # All other traffic goes to FastAPI
             await api_app(scope, receive, send)
 
         logger.info(
