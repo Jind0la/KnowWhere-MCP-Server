@@ -1124,7 +1124,7 @@ def main():
         api_app = FastAPI(
             title="Knowwhere REST API",
             description="Integrated Personal Knowledge Engine",
-            version="1.4.2-FINAL",
+            version="1.4.3-STABLE",
         )
 
         # Add CORS to the REST app
@@ -1145,8 +1145,9 @@ def main():
         api_app.include_router(api_router)
 
         # 3. Mount REST API and add health checks to the root app
-        # Mount the versioned REST API at /api
-        server_app.mount("/api", api_app)
+        # Mount the REST API at root because it internally handles the /api prefix
+        # This restores /api/stats, /api/onboarding/status, etc.
+        server_app.mount("/", api_app)
 
         # Add a root health check for Railway/monitoring
         @server_app.route("/health")
@@ -1154,7 +1155,7 @@ def main():
             return JSONResponse({
                 "status": "healthy",
                 "service": "knowwhere",
-                "version": "1.4.2-FINAL",
+                "version": "1.4.3-STABLE",
                 "mcp": "/sse",
                 "rest": "/api"
             })
@@ -1192,7 +1193,7 @@ def main():
             "Starting Stabilized Knowwhere Integrated Server",
             host=host,
             port=port,
-            version="1.4.2-FINAL",
+            version="1.4.3-STABLE",
             mcp_endpoint="/sse",
             rest_prefix="/api"
         )
