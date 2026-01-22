@@ -22,10 +22,10 @@ type MCPClient = "cursor" | "claude-desktop" | "claude-code" | "gemini-cli";
 interface ClientConfig {
     id: MCPClient;
     name: string;
-    configPath: {
-        darwin: string;
-        win32: string;
-        linux: string;
+    configPaths: {
+        darwin: string[];
+        win32: string[];
+        linux: string[];
     };
     configKey: string;
 }
@@ -38,40 +38,51 @@ const CLIENTS: Record<MCPClient, ClientConfig> = {
     cursor: {
         id: "cursor",
         name: "Cursor IDE",
-        configPath: {
-            darwin: "~/.cursor/mcp.json",
-            win32: "%APPDATA%\\Cursor\\mcp.json",
-            linux: "~/.config/Cursor/mcp.json",
+        configPaths: {
+            darwin: ["~/.cursor/mcp.json"],
+            win32: ["%APPDATA%\\Cursor\\mcp.json"],
+            linux: ["~/.config/Cursor/mcp.json"],
         },
         configKey: "mcpServers",
     },
     "claude-desktop": {
         id: "claude-desktop",
         name: "Claude Desktop",
-        configPath: {
-            darwin: "~/Library/Application Support/Claude/claude_desktop_config.json",
-            win32: "%APPDATA%\\Claude\\claude_desktop_config.json",
-            linux: "~/.config/Claude/claude_desktop_config.json",
+        configPaths: {
+            darwin: ["~/Library/Application Support/Claude/claude_desktop_config.json"],
+            win32: ["%APPDATA%\\Claude\\claude_desktop_config.json"],
+            linux: ["~/.config/Claude/claude_desktop_config.json"],
         },
         configKey: "mcpServers",
     },
     "claude-code": {
         id: "claude-code",
         name: "Claude Code (CLI)",
-        configPath: {
-            darwin: "~/.claude/settings.json",
-            win32: "%USERPROFILE%\\.claude\\settings.json",
-            linux: "~/.claude/settings.json",
+        configPaths: {
+            darwin: ["~/.claude/settings.json", "~/.config/claude/settings.json"],
+            win32: ["%USERPROFILE%\\.claude\\settings.json", "%APPDATA%\\claude\\settings.json"],
+            linux: ["~/.claude/settings.json", "~/.config/claude/settings.json"],
         },
         configKey: "mcpServers",
     },
     "gemini-cli": {
         id: "gemini-cli",
         name: "Gemini CLI",
-        configPath: {
-            darwin: "~/.config/gemini/settings.json",
-            win32: "%APPDATA%\\gemini\\settings.json",
-            linux: "~/.config/gemini/settings.json",
+        configPaths: {
+            darwin: [
+                "~/.gemini/settings.json",
+                "~/.config/gemini/settings.json",
+                "~/.config/gemini/config.json"
+            ],
+            win32: [
+                "%APPDATA%\\gemini\\settings.json",
+                "%USERPROFILE%\\.gemini\\settings.json"
+            ],
+            linux: [
+                "~/.gemini/settings.json",
+                "~/.config/gemini/settings.json",
+                "~/.config/gemini/config.json"
+            ],
         },
         configKey: "mcpServers",
     },
@@ -102,10 +113,6 @@ function getPlatform(): "darwin" | "win32" | "linux" {
     return "linux";
 }
 
-function getConfigPath(client: ClientConfig): string {
-    const p = getPlatform();
-    return expandPath(client.configPath[p]);
-}
 
 function readJsonFile(path: string): Record<string, unknown> {
     if (!existsSync(path)) {
@@ -171,9 +178,38 @@ async function main() {
     ]);
 
     const selectedClient = CLIENTS[client];
-    const configPath = getConfigPath(selectedClient);
+    const platformStr = getPlatform();
+    const candidatePaths = selectedClient.configPaths[platformStr].map(expandPath);
 
-    console.log(chalk.gray(`\n  → Config-Datei: ${configPath}`));
+    // Find existing config files
+    const existingFilePaths = candidatePaths.filter(p => existsSync(p));
+
+    let configPath: string;
+
+    if (existingFilePaths.length === 0) {
+        // Use the first one as default if none exist
+        configPath = candidatePaths[0];
+    } else if (existingFilePaths.length === 1) {
+        // Use the only one that exists
+        configPath = existingFilePaths[0];
+    } else {
+        // Ask the user which one to use if multiple exist
+        console.log(chalk.yellow(`\n  ⚠️  Mehrere Konfigurationsdateien für ${selectedClient.name} gefunden.`));
+        const { choice } = await inquirer.prompt<{ choice: string }>([
+            {
+                type: "list",
+                name: "choice",
+                message: "Welche Datei soll aktualisiert werden?",
+                choices: existingFilePaths.map(p => ({
+                    name: p.replace(homedir(), "~"),
+                    value: p
+                }))
+            }
+        ]);
+        configPath = choice;
+    }
+
+    console.log(chalk.gray(`\n  → Config-Datei: ${configPath.replace(homedir(), "~")}`));
 
     // Step 2: Get API key
     if (!apiKey) {
