@@ -1231,29 +1231,43 @@ def main():
         # =============================================================================
         # MCP Connection Handling
         # =============================================================================
-        # We'll use a wrapper to map /sse and /mcp/sse to the correct internal path.
+        # We'll use a wrapper to handle routing and authentication for MCP traffic.
         async def mcp_asgi_wrapper(scope, receive, send):
             if scope["type"] == "http":
-                # Ensure authentication happens inside the ASGI wrapper for SSE/Mounted flows
+                # 1. Handle Path Mapping for SSE transport
+                path = scope.get("path", "")
+                
+                # If the client hits /sse or /mcp/sse, they want the stream
+                if path in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
+                    scope["path"] = "/mcp/sse"
+                
+                # If the client hits /messages or /mcp/messages, they are sending tool calls
+                # Standard FastMCP (via HTTP) expects /messages
+                elif path in ["/messages", "/mcp/messages", "/messages/", "/mcp/messages/"]:
+                    scope["path"] = "/mcp/messages"
+                
+                # 2. Handle Authentication
+                # We extract auth from headers and set it in AuthContext
                 headers = dict(scope.get("headers", []))
                 auth_header = headers.get(b"authorization", b"").decode("utf-8") or None
                 api_key_header = headers.get(b"x-api-key", b"").decode("utf-8") or None
                 
-                # This will set AuthContext.user for the duration of this ASGI task
-                await authenticate_request(
-                    bearer_token=auth_header,
-                    api_key=api_key_header
-                )
-            
-            if scope["type"] == "http" and scope["path"] in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
-                # Map external SSE paths to the internal MCP app route
-                scope["path"] = "/mcp"
-            
+                # Authenticate and set context (will be used by the tool functions)
+                try:
+                    await authenticate_request(
+                        bearer_token=auth_header,
+                        api_key=api_key_header
+                    )
+                except Exception as e:
+                    logger.warning("MCP Auth failed in ASGI wrapper", error=str(e))
+
+            # Forward to the internal MCP HTTP app
             await mcp_http_app(scope, receive, send)
         
-        # Mount at root to catch all MCP related traffic (/mcp, /messages, etc.)
-        # MUST be after specific routes like /health
-        combined_app.mount("/", mcp_asgi_wrapper)
+        # Mount the wrapper at /mcp primarily, but we'll also catch root-level MCP calls
+        combined_app.mount("/mcp", mcp_http_app)
+        combined_app.mount("/sse", mcp_asgi_wrapper)
+        combined_app.mount("/messages", mcp_asgi_wrapper)
 
         @combined_app.exception_handler(404)
         async def custom_404_handler(request: Request, exc):
