@@ -10,7 +10,7 @@
 - [x] Task: Implement Redis Health Check ef6f600
     - [ ] Subtask: Write tests for Redis ping
     - [ ] Subtask: Implement Redis connectivity check
-- [ ] Task: Implement Vector Search Latency Check
+- [x] Task: Implement Vector Search Latency Check ba021b4
     - [ ] Subtask: Write tests for vector search simulation
     - [ ] Subtask: Implement dummy vector search to measure latency
 - [ ] Task: Implement LLM Provider Availability Check
