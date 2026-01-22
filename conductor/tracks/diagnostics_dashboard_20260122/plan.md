@@ -25,7 +25,7 @@
 - [x] Task: Create Dashboard Layout Structure ce88233
     - [ ] Subtask: Create new route `/dashboard/diagnostics`
     - [ ] Subtask: Implement basic page skeleton
-- [ ] Task: Implement Health Status Card Component
+- [x] Task: Implement Health Status Card Component 97257b2
     - [ ] Subtask: Design component for individual service status (Green/Red/Yellow indicators)
     - [ ] Subtask: Implement component with props for Service Name, Status, Latency
 - [ ] Task: Integrate Backend API
