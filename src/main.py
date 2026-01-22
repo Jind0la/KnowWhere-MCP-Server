@@ -1138,7 +1138,7 @@ def main():
                     return response
                 except Exception as e:
                     logger.error("Error in AuthMiddleware", error=str(e))
-                     raise
+                    raise
 
         # Combine FastAPI lifespan with MCP lifespan
         @asynccontextmanager
