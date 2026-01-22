@@ -1116,16 +1116,16 @@ def main():
         from starlette.middleware.base import BaseHTTPMiddleware
         from src.api.web import router as api_router
         
-        # 1. Initialize FastMCP with SSE transport
-        # This gives us a Starlette app with its own lifespan and routes
-        mcp_app = mcp.http_app(transport="sse")
+        # 1. Initialize FastMCP with 'http' transport (Streamable HTTP)
+        # This is the modern transport used by Gemini and Claude Code.
+        # We target /sse because the user's configuration points to this URL.
+        mcp_app = mcp.http_app(transport="http", path="/sse")
         
         # 2. Create the main FastAPI app and share the lifespan
-        # Sharing the lifespan is critical for FastMCP's internal task groups
         combined_app = FastAPI(
             title="Knowwhere Unified Server",
             description="High-Performance MCP + REST API Server",
-            version="1.4.0-STABLE",
+            version="1.4.1-STABLE",
             lifespan=mcp_app.router.lifespan_context
         )
 
@@ -1146,7 +1146,6 @@ def main():
         # 4. Add Authentication Middleware
         @combined_app.middleware("http")
         async def shared_auth_middleware(request: Request, call_next):
-            # This sets AuthContext for all routes (REST and integrated MCP)
             auth_header = request.headers.get("Authorization")
             api_key = request.headers.get("X-API-Key")
             try:
@@ -1165,26 +1164,17 @@ def main():
                 "status": "healthy", 
                 "service": "knowwhere",
                 "version": combined_app.version,
-                "components": ["mcp-sse", "rest-api"]
+                "transport": "streamable-http",
+                "endpoint": "/sse"
             }
 
         # 6. Inject MCP Routes into FastAPI
-        # We manually add the routes from mcp_app to combined_app
-        # This makes them first-class citizens in the FastAPI app
+        # For transport="http", FastMCP creates a single route at the specified path
+        # that handles GET, POST, and DELETE for the Streamable HTTP protocol.
         for route in mcp_app.routes:
-            # Avoid duplicating any routes if they were somehow added
             if any(r.path == route.path for r in combined_app.router.routes):
                 continue
             combined_app.router.routes.append(route)
-
-        # 7. Add explicit POST handler for /sse (Support for proactive discovery)
-        # Some clients try to probe with POST
-        @combined_app.post("/sse")
-        async def sse_post_handler(request: Request):
-            # Resolve the original SSE GET endpoint from the injected routes
-            sse_route = next(r for r in mcp_app.routes if r.path == "/sse")
-            # We treat the POST as a probe or forward it to the endpoint
-            return await sse_route.endpoint(request)
 
         # Global REST Exception Handler
         @combined_app.exception_handler(Exception)
@@ -1192,6 +1182,17 @@ def main():
             import traceback
             logger.error("SYSTEM ERROR", path=request.url.path, error=str(exc), trace=traceback.format_exc())
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "error": str(exc)})
+
+        logger.info(
+            "Starting Streamable Knowwhere Server",
+            host=host,
+            port=port,
+            version=combined_app.version,
+            mcp_endpoint="/sse",
+            rest_prefix="/api"
+        )
+        
+        uvicorn.run(combined_app, host=host, port=port)
 
         logger.info(
             "Starting Integrated Knowwhere Server",
