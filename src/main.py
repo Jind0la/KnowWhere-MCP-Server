@@ -129,23 +129,37 @@ async def authenticate_request(
     """
     Authenticate a request and return user_id.
     
-    Tries bearer token first, then API key.
-    Returns None if authentication fails.
+    Supports:
+    - JWT in Authorization: Bearer <token>
+    - API Key in Authorization: Bearer <kw_...>
+    - API Key in X-API-Key: <kw_...>
     """
-    # Try bearer token
+    # 1. Normalize tokens from headers
+    token_to_verify = None
     if bearer_token:
         if bearer_token.startswith("Bearer "):
-            bearer_token = bearer_token[7:]
-        
-        token_data = verify_token(bearer_token, token_type="access")
+            token_to_verify = bearer_token[7:]
+        else:
+            token_to_verify = bearer_token
+            
+    api_key_to_verify = api_key
+    
+    # 2. If Authorization header contains an API key (kw_...), treat it as such
+    if token_to_verify and token_to_verify.startswith("kw_"):
+        api_key_to_verify = token_to_verify
+        token_to_verify = None
+
+    # 3. Try JWT authentication if we have a potential token
+    if token_to_verify:
+        token_data = verify_token(token_to_verify, token_type="access")
         if token_data:
             user_id = UUID(token_data.sub)
             AuthContext.set_user_from_token(token_data)
             return user_id
     
-    # Try API key
-    if api_key:
-        user_info = await verify_api_key(api_key)
+    # 4. Try API key authentication
+    if api_key_to_verify:
+        user_info = await verify_api_key(api_key_to_verify)
         if user_info:
             user_id = user_info["user_id"]
             AuthContext.set_user_from_api_key(user_info)
@@ -220,15 +234,6 @@ def get_user_id_from_context(
     auth_user_id = AuthContext.get_user_id()
     if auth_user_id:
         return auth_user_id
-    
-    logger.warning(
-        "User context resolution failed",
-        auth_context_user_id=str(auth_user_id) if auth_user_id else None,
-        has_metadata=metadata is not None,
-        has_context=context is not None,
-        require_auth=REQUIRE_AUTH,
-        env_auth_id=str(_env_authenticated_user_id) if _env_authenticated_user_id else None
-    )
     
     # Check metadata
     if metadata and "user_id" in metadata:
@@ -1199,28 +1204,6 @@ def main():
         # =============================================================================
         # We'll use a wrapper to map /sse and /mcp/sse to the correct internal path.
         async def mcp_asgi_wrapper(scope, receive, send):
-            if scope["type"] == "http":
-                # Debug logging for headers
-                headers = dict(scope.get("headers", []))
-                auth_header = headers.get(b"authorization", b"").decode("utf-8") or None
-                api_key_header = headers.get(b"x-api-key", b"").decode("utf-8") or None
-                
-                logger.debug(
-                    "MCP Wrapper Processing Request",
-                    path=scope.get("path"),
-                    has_auth=auth_header is not None,
-                    has_api_key=api_key_header is not None,
-                    method=scope.get("method")
-                )
-                
-                # Perform authentication in weight-bearing wrapper
-                user_id = await authenticate_request(
-                    bearer_token=auth_header,
-                    api_key=api_key_header
-                )
-                if user_id:
-                    logger.debug("Request authenticated in MCP wrapper", user_id=str(user_id))
-            
             if scope["type"] == "http" and scope["path"] in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
                 # Map external SSE paths to the internal MCP app route
                 scope["path"] = "/mcp"
