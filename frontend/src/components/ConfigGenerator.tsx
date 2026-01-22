@@ -140,15 +140,14 @@ const CLIENT_CONFIGS: Record<MCPClient, ClientConfig> = {
         supportsStdio: true,
         instructions: {
             sse: [
-                "Öffne ~/.claude/settings.json",
+                "Einfachster Weg: Kopiere den Befehl unten in dein Terminal",
+                'Alternativ: Öffne ~/.claude/settings.json',
                 'Füge die Konfiguration unter "mcpServers" ein',
-                "Speichern und neue Terminal-Session starten",
             ],
             stdio: [
                 "Öffne ~/.claude/settings.json",
                 'Füge die Konfiguration unter "mcpServers" ein',
                 "Passe den Pfad zu deinem KnowWhere-Ordner an",
-                "Speichern und neue Terminal-Session starten",
             ],
         },
     },
@@ -596,28 +595,55 @@ export function ConfigGenerator({
                     )}
 
                     {/* Config code block */}
-                    <div className="relative">
-                        <div className="absolute top-2 right-2 z-10 flex gap-2">
-                            {hasFullKey && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => setShowKeyInConfig(!showKeyInConfig)}
-                                    title={showKeyInConfig ? "Key verstecken" : "Key anzeigen"}
-                                    className="h-8 w-8 bg-zinc-800 hover:bg-zinc-700"
-                                >
-                                    {showKeyInConfig ? (
-                                        <EyeOff className="w-4 h-4 text-zinc-300" />
-                                    ) : (
-                                        <Eye className="w-4 h-4 text-zinc-300" />
+                    <div className="space-y-4">
+                        {(selectedClient === "cursor" || selectedClient === "claude-desktop" || selectedClient === "claude-code") && transportMode === "sse" && (
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-primary flex items-center gap-1">
+                                    <Terminal className="w-3 h-3" />
+                                    Magic Setup (Empfohlen)
+                                </Label>
+                                <div className="relative">
+                                    <div className="absolute top-2 right-2 z-10">
+                                        <CopyButton text={`npx @knowwhere/cli --api-key ${actualKeyValue || keyValueForConfig}`} className="h-7 text-xs bg-zinc-800" />
+                                    </div>
+                                    <pre className="p-3 bg-zinc-900 text-zinc-300 rounded-lg overflow-x-auto text-xs border border-zinc-800">
+                                        <code>npx @knowwhere/cli --api-key {keyValueForConfig}</code>
+                                    </pre>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">
+                                    Erfordert Node.js. Dieser Befehl konfiguriert {clientConfig.name} automatisch für dich.
+                                </p>
+                            </div>
+                        )}
+
+                        <div className="space-y-2">
+                            <Label className="text-xs font-semibold text-muted-foreground">
+                                Manuelle Konfiguration (JSON)
+                            </Label>
+                            <div className="relative">
+                                <div className="absolute top-2 right-2 z-10 flex gap-2">
+                                    {hasFullKey && (
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => setShowKeyInConfig(!showKeyInConfig)}
+                                            title={showKeyInConfig ? "Key verstecken" : "Key anzeigen"}
+                                            className="h-8 w-8 bg-zinc-800 hover:bg-zinc-700"
+                                        >
+                                            {showKeyInConfig ? (
+                                                <EyeOff className="w-4 h-4 text-zinc-300" />
+                                            ) : (
+                                                <Eye className="w-4 h-4 text-zinc-300" />
+                                            )}
+                                        </Button>
                                     )}
-                                </Button>
-                            )}
-                            <CopyButton text={copyConfig} />
+                                    <CopyButton text={copyConfig} />
+                                </div>
+                                <pre className="p-4 bg-zinc-950 text-zinc-100 rounded-lg overflow-x-auto text-sm border border-zinc-800">
+                                    <code>{displayConfig}</code>
+                                </pre>
+                            </div>
                         </div>
-                        <pre className="p-4 bg-zinc-950 text-zinc-100 rounded-lg overflow-x-auto text-sm">
-                            <code>{displayConfig}</code>
-                        </pre>
                     </div>
 
                     {/* Stdio path warning */}
