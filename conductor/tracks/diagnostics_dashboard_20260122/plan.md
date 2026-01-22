@@ -28,7 +28,7 @@
 - [x] Task: Implement Health Status Card Component 97257b2
     - [ ] Subtask: Design component for individual service status (Green/Red/Yellow indicators)
     - [ ] Subtask: Implement component with props for Service Name, Status, Latency
-- [ ] Task: Integrate Backend API
+- [x] Task: Integrate Backend API de2a6fb
     - [ ] Subtask: Implement data fetching hook for `/health/full`
     - [ ] Subtask: Handle loading and error states
 - [ ] Task: Implement Auto-Refresh Mechanism
