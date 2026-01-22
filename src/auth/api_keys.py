@@ -6,7 +6,7 @@ Handles API key generation, hashing, and validation.
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 from uuid import UUID
 
@@ -106,7 +106,7 @@ class APIKeyManager:
         # Calculate expiration
         expires_at = None
         if expires_in_days:
-            expires_at = datetime.now(datetime.UTC) + timedelta(days=expires_in_days)
+            expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
         
         # Store in database
         db = await self._get_db()
@@ -175,7 +175,7 @@ class APIKeyManager:
             return None
         
         # Check expiration
-        if row["expires_at"] and row["expires_at"] < datetime.now(datetime.UTC):
+        if row["expires_at"] and row["expires_at"] < datetime.now(UTC):
             logger.warning("API key expired", key_id=str(row["id"]))
             return None
         

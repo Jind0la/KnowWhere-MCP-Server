@@ -5,7 +5,7 @@ Data access layer for Memory entities with vector search support.
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from uuid import UUID
 
@@ -462,7 +462,6 @@ class MemoryRepository:
     
     def _get_date_filter(self, date_range: str) -> datetime | None:
         """Convert date range string to datetime."""
-        from datetime import UTC
         now = datetime.now(UTC)
         ranges = {
             "last_7_days": now - timedelta(days=7),
