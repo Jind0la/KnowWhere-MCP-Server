@@ -1119,159 +1119,62 @@ def main():
         mcp_http_app = mcp.http_app()
         
 
-        # Combine FastAPI lifespan with MCP lifespan
-        @asynccontextmanager
-        async def combined_lifespan(app: FastAPI):
-            # FastMCP's lifespan already calls init_container()
-            # We just use its context to ensure all MCP internals (like long-running tasks) start correctly
-            async with mcp_http_app.router.lifespan_context(app):
-                logger.info("Starting Knowwhere Combined API (Lifespan via FastMCP)...")
-                # init_container is handled by mcp's lifespan_context
-                yield
-                # Cleanup is also handled by mcp's lifespan_context (which calls close_container)
-                logger.info("Combined API shutdown complete")
+        # Use FastMCP's internal FastAPI app as the base
+        # This ensures /sse and /messages are registered correctly at the root
+        combined_app = mcp_http_app
+        combined_app.title = "Knowwhere Combined API"
+        combined_app.description = "Combined MCP + REST API Server"
+        combined_app.version = "1.3.1-STABILIZED"
 
-        # Create main FastAPI app
-        combined_app = FastAPI(
-            title="Knowwhere API",
-            description="Combined MCP + REST API Server",
-            version="1.0.0",
-            lifespan=combined_lifespan,
+        # 1. Add Middleware (CORS)
+        origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+        if settings.frontend_url:
+            origins.extend([o.strip() for o in settings.frontend_url.split(",") if o.strip()])
+        
+        combined_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[o for o in origins if o],
+            allow_origin_regex=r"https://know-where-mcp-server-.*\.vercel\.app",
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
         )
 
-        # Global Exception Handlers for better Railway debugging
-        @combined_app.exception_handler(Exception)
-        async def global_exception_handler(request: Request, exc: Exception):
-            import traceback
-            logger.error(
-                "GLOBAL UNHANDLED ERROR",
-                path=request.url.path,
-                method=request.method,
-                error=str(exc),
-                trace=traceback.format_exc()
-            )
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Internal Server Error", "error": str(exc)}
-            )
-
-        @combined_app.exception_handler(400)
-        async def bad_request_handler(request: Request, exc):
-            logger.warning(
-                "HTTP 400 Bad Request",
-                path=request.url.path,
-                method=request.method,
-                detail=str(exc)
-            )
-            return JSONResponse(
-                status_code=400,
-                content={"detail": str(exc), "path": request.url.path}
-            )
-        
-        # Authentication Middleware (Decorator style for better context propagation)
+        # 2. Add Authentication Middleware
         @combined_app.middleware("http")
         async def auth_context_middleware(request: Request, call_next):
-            # Try to extract authentication from headers
+            # This sets AuthContext for both REST and MCP (via SSE/Messages)
             auth_header = request.headers.get("Authorization")
             api_key_header_val = request.headers.get("X-API-Key")
             
-            # This sets AuthContext internally
             try:
                 await authenticate_request(
                     bearer_token=auth_header,
                     api_key=api_key_header_val
                 )
             except Exception as e:
-                logger.error("Authentication middleware failure", error=str(e))
-                # We continue to let call_next handle it (will likely result in 401 later)
-            
-            try:
-                response = await call_next(request)
-                return response
-            except Exception as e:
-                import traceback
-                logger.error("Middleware Chain Failure", error=str(e), trace=traceback.format_exc())
-                raise
+                logger.debug("Optional auth failed", error=str(e))
+                
+            return await call_next(request)
 
-        # CORS configuration for frontend
-        origins = [
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ]
-        if settings.frontend_url:
-            # Support comma-separated URLs
-            extra_origins = [o.strip() for o in settings.frontend_url.split(",") if o.strip()]
-            origins.extend(extra_origins)
-        
-        origins = [o for o in origins if o]  # Remove empty strings
-        
-        # Add CORS middleware with Vercel preview support
-        combined_app.add_middleware(
-            CORSMiddleware,
-            allow_origins=origins,
-            allow_origin_regex=r"https://know-where-mcp-server-.*\.vercel\.app",
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-        
-        # Include the REST API router
+        # 3. Add REST API and Helper Routes
         combined_app.include_router(api_router)
-        
-        # Helper Endpoints
+
         @combined_app.get("/health")
         async def health_check():
             return {
                 "status": "healthy", 
                 "service": "knowwhere-mcp",
-                "version": "1.3.1-CONNECTIVITY",
-                "features": ["compact_mode", "relevance_threshold", "evolution_fix", "explicit_routing"]
+                "version": combined_app.version,
+                "mcp_enabled": True
             }
 
-        # =============================================================================
-        # MCP Connection Handling
-        # =============================================================================
-        # Robust ASGI wrapper to handle multiple paths (/sse, /messages, /mcp/...)
-        async def mcp_asgi_wrapper(scope, receive, send):
-            if scope["type"] == "http":
-                path = scope.get("path", "")
-                query = scope.get("query_string", b"").decode("utf-8")
-                
-                # Normalize paths for FastMCP internal app
-                if path in ["/sse", "/sse/", "/mcp/sse", "/mcp/sse/"]:
-                    scope["path"] = "/sse"
-                elif path in ["/messages", "/messages/", "/mcp/messages", "/mcp/messages/"]:
-                    scope["path"] = "/messages"
-                elif path.startswith("/mcp/"):
-                    scope["path"] = path[4:]
-                
-                logger.debug(
-                    "MCP Routing", 
-                    original_path=path, 
-                    target_path=scope["path"],
-                    query=query
-                )
-                
-                # Handle Authentication for tool calls
-                headers = dict(scope.get("headers", []))
-                auth_header = headers.get(b"authorization", b"").decode("utf-8") or None
-                api_key_header = headers.get(b"x-api-key", b"").decode("utf-8") or None
-                
-                try:
-                    user_id = await authenticate_request(
-                        bearer_token=auth_header,
-                        api_key=api_key_header
-                    )
-                    if user_id:
-                        logger.debug("MCP Auth success", user_id=str(user_id))
-                except Exception as e:
-                    logger.warning("MCP Auth context injection failed", error=str(e))
-
-            # Forward to internal app
-            await mcp_http_app(scope, receive, send)
-        
-        # Mount at root as a catch-all (FastAPI routes like /health and /api take precedence if defined first)
-        combined_app.mount("/", mcp_asgi_wrapper)
+        # 4. Global Exception Handlers for Railway debugging
+        @combined_app.exception_handler(Exception)
+        async def global_exception_handler(request: Request, exc: Exception):
+            import traceback
+            logger.error("SYSTEM ERROR", path=request.url.path, error=str(exc), trace=traceback.format_exc())
+            return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "error": str(exc)})
 
         @combined_app.exception_handler(404)
         async def custom_404_handler(request: Request, exc):
@@ -1280,18 +1183,17 @@ def main():
                 content={
                     "detail": "Not Found", 
                     "path": request.url.path,
-                    "tip": "Try /sse for MCP connection or /health for status"
+                    "tip": "Try /sse for MCP connection. FastMCP expects verbatim paths."
                 }
             )
-        
+
         logger.info(
-            "Starting combined MCP + REST API server",
-            mcp_endpoints=["/sse", "/messages/", "/mcp/sse", "/mcp/messages/"],
-            api_prefix="/api",
-            health_endpoint="/health",
+            "Starting unified Knowwhere Server",
+            host=host,
+            port=port,
+            endpoints=["/sse", "/messages", "/api", "/health"]
         )
         
-        # Run the combined app with uvicorn
         uvicorn.run(combined_app, host=host, port=port)
     else:
         # Default stdio transport for CLI/direct integration
