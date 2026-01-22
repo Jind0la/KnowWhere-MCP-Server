@@ -187,7 +187,7 @@ async def complete_onboarding(user: CurrentUser = Depends(get_current_user)):
     
     settings = await user_repo.update_settings(user.id, {
         "onboarding_completed": True,
-        "onboarding_completed_at": datetime.utcnow().isoformat(),
+        "onboarding_completed_at": datetime.now(datetime.UTC).isoformat(),
     })
     
     logger.info("Onboarding completed", user_id=str(user.id))
@@ -342,7 +342,7 @@ async def get_memory(
         "access_count": memory.access_count + 1,
         "created_at": memory.created_at.isoformat(),
         "updated_at": memory.updated_at.isoformat(),
-        "last_accessed": datetime.utcnow().isoformat(),
+        "last_accessed": datetime.now(datetime.UTC).isoformat(),
         "metadata": memory.metadata,
         "domain": memory.domain,
         "category": memory.category,

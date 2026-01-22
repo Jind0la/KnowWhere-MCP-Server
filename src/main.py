@@ -1139,6 +1139,35 @@ def main():
             version="1.0.0",
             lifespan=combined_lifespan,
         )
+
+        # Global Exception Handlers for better Railway debugging
+        @combined_app.exception_handler(Exception)
+        async def global_exception_handler(request: Request, exc: Exception):
+            import traceback
+            logger.error(
+                "GLOBAL UNHANDLED ERROR",
+                path=request.url.path,
+                method=request.method,
+                error=str(exc),
+                trace=traceback.format_exc()
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal Server Error", "error": str(exc)}
+            )
+
+        @combined_app.exception_handler(400)
+        async def bad_request_handler(request: Request, exc):
+            logger.warning(
+                "HTTP 400 Bad Request",
+                path=request.url.path,
+                method=request.method,
+                detail=str(exc)
+            )
+            return JSONResponse(
+                status_code=400,
+                content={"detail": str(exc), "path": request.url.path}
+            )
         
         # Authentication Middleware (Decorator style for better context propagation)
         @combined_app.middleware("http")
@@ -1148,17 +1177,22 @@ def main():
             api_key_header_val = request.headers.get("X-API-Key")
             
             # This sets AuthContext internally
-            await authenticate_request(
-                bearer_token=auth_header,
-                api_key=api_key_header_val
-            )
+            try:
+                await authenticate_request(
+                    bearer_token=auth_header,
+                    api_key=api_key_header_val
+                )
+            except Exception as e:
+                logger.error("Authentication middleware failure", error=str(e))
+                # We continue to let call_next handle it (will likely result in 401 later)
             
             try:
                 response = await call_next(request)
                 return response
-            finally:
-                # We don't clear here to allow SSE streams to maintain context
-                pass
+            except Exception as e:
+                import traceback
+                logger.error("Middleware Chain Failure", error=str(e), trace=traceback.format_exc())
+                raise
 
         # CORS configuration for frontend
         origins = [

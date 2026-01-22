@@ -462,7 +462,8 @@ class MemoryRepository:
     
     def _get_date_filter(self, date_range: str) -> datetime | None:
         """Convert date range string to datetime."""
-        now = datetime.utcnow()
+        from datetime import UTC
+        now = datetime.now(UTC)
         ranges = {
             "last_7_days": now - timedelta(days=7),
             "last_30_days": now - timedelta(days=30),
