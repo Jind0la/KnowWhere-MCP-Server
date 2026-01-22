@@ -1232,40 +1232,50 @@ def main():
         # MCP Connection Handling
         # =============================================================================
         # We'll use a wrapper to handle routing and authentication for MCP traffic.
+        # This allows us to support shorthand paths (/sse, /messages) and inject auth.
         async def mcp_asgi_wrapper(scope, receive, send):
             if scope["type"] == "http":
-                # 1. Handle Path Mapping for SSE transport
-                path = scope.get("path", "")
+                # 1. Handle Path Mapping and Normalization
+                original_path = scope.get("path", "")
+                query_string = scope.get("query_string", b"").decode("utf-8")
                 
-                # If the client hits /sse or /mcp/sse, they want the stream
-                if path in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
-                    scope["path"] = "/mcp/sse"
-                
-                # If the client hits /messages or /mcp/messages, they are sending tool calls
-                # Standard FastMCP (via HTTP) expects /messages
-                elif path in ["/messages", "/mcp/messages", "/messages/", "/mcp/messages/"]:
-                    scope["path"] = "/mcp/messages"
+                # Determine the target internal path for FastMCP
+                # If hitting the root of a mount point (like /sse or /messages)
+                if original_path in ["", "/", "/sse", "/sse/", "/mcp/sse", "/mcp/sse/"]:
+                    scope["path"] = "/sse"
+                    logger.debug("Routing to MCP SSE", original=original_path, query=query_string)
+                elif original_path in ["/messages", "/messages/", "/mcp/messages", "/mcp/messages/"]:
+                    scope["path"] = "/messages"
+                    logger.debug("Routing to MCP Messages", original=original_path, query=query_string)
+                elif original_path.startswith("/mcp"):
+                    scope["path"] = original_path[4:] or "/"
                 
                 # 2. Handle Authentication
-                # We extract auth from headers and set it in AuthContext
                 headers = dict(scope.get("headers", []))
                 auth_header = headers.get(b"authorization", b"").decode("utf-8") or None
                 api_key_header = headers.get(b"x-api-key", b"").decode("utf-8") or None
                 
-                # Authenticate and set context (will be used by the tool functions)
+                # This sets AuthContext.user for the duration of this ASGI task
                 try:
-                    await authenticate_request(
+                    user_id = await authenticate_request(
                         bearer_token=auth_header,
                         api_key=api_key_header
                     )
+                    if user_id:
+                        logger.debug("MCP Auth success", user_id=str(user_id), path=scope["path"])
+                    else:
+                        logger.debug("No active auth session for MCP call", path=scope["path"])
                 except Exception as e:
                     logger.warning("MCP Auth failed in ASGI wrapper", error=str(e))
 
-            # Forward to the internal MCP HTTP app
+            # Forward everything to the internal MCP HTTP app
+            # FastMCP's internal app handles the actual SSE and tool execution.
             await mcp_http_app(scope, receive, send)
         
-        # Mount the wrapper at /mcp primarily, but we'll also catch root-level MCP calls
+        # Standard MCP endpoint
         combined_app.mount("/mcp", mcp_http_app)
+        
+        # Shorthand endpoints for compatibility with various clients
         combined_app.mount("/sse", mcp_asgi_wrapper)
         combined_app.mount("/messages", mcp_asgi_wrapper)
 
