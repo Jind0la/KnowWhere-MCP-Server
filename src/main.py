@@ -1097,15 +1097,31 @@ def main():
         host = os.getenv("HOST", "0.0.0.0")
         port = int(os.getenv("PORT", "8000"))
         
-        # Create combined FastAPI app with REST API + MCP
-        from fastapi import FastAPI
+        from fastapi import FastAPI, Request
+        from fastapi.responses import JSONResponse
         from src.api.web import router as api_router
         
+        mcp_http_app = mcp.http_app()
+        
+        # Combine FastAPI lifespan with MCP lifespan
+        @asynccontextmanager
+        async def combined_lifespan(app: FastAPI):
+            # Run MCP lifespan
+            async with mcp_http_app.router.lifespan_context(app):
+                # Our custom initialization
+                logger.info("Starting Knowwhere Combined API...")
+                await init_container()
+                yield
+                # Cleanup
+                await close_container()
+                logger.info("Combined API shutdown complete")
+
         # Create main FastAPI app
         combined_app = FastAPI(
             title="Knowwhere API",
             description="Combined MCP + REST API Server",
             version="1.0.0",
+            lifespan=combined_lifespan,
         )
         
         # CORS configuration for frontend
@@ -1133,24 +1149,47 @@ def main():
         # Include the REST API router
         combined_app.include_router(api_router)
         
-        # Add health check endpoint
+        # =============================================================================
+        # MCP Connection Handling
+        # =============================================================================
+        # We discovered mcp_http_app expects '/mcp' for SSE. 
+        # We'll use a wrapper to map /sse and /mcp/sse to the correct internal path.
+        async def mcp_asgi_wrapper(scope, receive, send):
+            if scope["type"] == "http" and scope["path"] in ["/sse", "/mcp/sse", "/sse/", "/mcp/sse/"]:
+                # Map external SSE paths to the internal MCP app route
+                scope["path"] = "/mcp"
+            await mcp_http_app(scope, receive, send)
+        
+        # Mount at root to catch all MCP related traffic (/mcp, /messages, etc.)
+        combined_app.mount("/", mcp_asgi_wrapper)
+
+        # Debug: Dump routes to file
+        try:
+            with open("/tmp/mcp_routes.txt", "w") as f:
+                f.write(f"MCP App Routes: {[str(r) for r in mcp_http_app.routes] if hasattr(mcp_http_app, 'routes') else 'no routes'}\n")
+        except:
+            pass
+        logger.info("MCP App Routes", routes=[str(r) for r in mcp_http_app.routes] if hasattr(mcp_http_app, "routes") else "no routes")
+
         @combined_app.get("/health")
         async def health_check():
             return {
                 "status": "healthy", 
                 "service": "knowwhere-mcp",
-                "version": "1.3.0-EVOLUTION",
-                "features": ["compact_mode", "relevance_threshold", "evolution_fix"]
+                "version": "1.3.1-CONNECTIVITY",
+                "features": ["compact_mode", "relevance_threshold", "evolution_fix", "explicit_routing"]
             }
         
-        # Mount the MCP server as a sub-application
-        # The MCP endpoints will be available at /mcp/sse and /mcp/messages/
-        mcp_http_app = mcp.http_app()
-        combined_app.mount("/mcp", mcp_http_app)
-        
-        # Also mount at root for backwards compatibility with MCP clients
-        # This makes /sse and /messages/ work directly
-        combined_app.mount("/", mcp_http_app)
+        @combined_app.exception_handler(404)
+        async def custom_404_handler(request: Request, exc):
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "detail": "Not Found", 
+                    "path": request.url.path,
+                    "tip": "Try /sse for MCP connection or /health for status"
+                }
+            )
         
         logger.info(
             "Starting combined MCP + REST API server",
