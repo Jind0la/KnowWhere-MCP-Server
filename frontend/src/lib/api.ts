@@ -66,6 +66,13 @@ export interface GraphEdge {
   confidence: number;
 }
 
+export interface HealthCheckResult {
+  service: string;
+  status: "UP" | "DOWN" | "DEGRADED";
+  latency_ms: number;
+  message: string | null;
+}
+
 // API Client
 class ApiClient {
   private async getAuthHeader(): Promise<Record<string, string>> {
@@ -301,6 +308,11 @@ class ApiClient {
       memory_count: number;
       message: string;
     }>("/api/connection/test");
+  }
+
+  // Health
+  async getFullHealth() {
+    return this.fetch<HealthCheckResult[]>("/health/full");
   }
 }
 
