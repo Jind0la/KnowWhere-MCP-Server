@@ -31,7 +31,7 @@
 - [x] Task: Integrate Backend API de2a6fb
     - [ ] Subtask: Implement data fetching hook for `/health/full`
     - [ ] Subtask: Handle loading and error states
-- [ ] Task: Implement Auto-Refresh Mechanism
+- [x] Task: Implement Auto-Refresh Mechanism de2a6fb
     - [ ] Subtask: Add polling interval (e.g., every 30s)
     - [ ] Subtask: Add manual "Refresh Now" button
 - [ ] Task: Conductor - User Manual Verification 'Frontend Diagnostics Dashboard' (Protocol in workflow.md)
