@@ -16,7 +16,7 @@
 - [x] Task: Implement LLM Provider Availability Check ced412d
     - [ ] Subtask: Write tests for LLM API ping (mocked)
     - [ ] Subtask: Implement lightweight model list/ping call
-- [ ] Task: Create Aggregated Health Endpoint
+- [x] Task: Create Aggregated Health Endpoint 043a1ea
     - [ ] Subtask: Write integration tests for `/health/full`
     - [ ] Subtask: Implement endpoint to run all checks in parallel and return aggregated results
 - [ ] Task: Conductor - User Manual Verification 'Backend Health Monitoring Infrastructure' (Protocol in workflow.md)
