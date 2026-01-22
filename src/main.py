@@ -1116,25 +1116,23 @@ def main():
         from starlette.middleware.base import BaseHTTPMiddleware
         from src.api.web import router as api_router
         
-        # 1. Initialize FastMCP with 'http' transport (Streamable HTTP)
-        # This is the modern transport used by Gemini and Claude Code.
-        # We target /sse because the user's configuration points to this URL.
-        mcp_app = mcp.http_app(transport="http", path="/sse")
+        # 1. Initialize FastMCP with standard SSE transport
+        # This app contains /sse and /messages natively at the root
+        server_app = mcp.http_app(transport="sse")
         
-        # 2. Create the main FastAPI app and share the lifespan
-        combined_app = FastAPI(
-            title="Knowwhere Unified Server",
-            description="High-Performance MCP + REST API Server",
-            version="1.4.1-STABLE",
-            lifespan=mcp_app.router.lifespan_context
+        # 2. Create the FastAPI REST app
+        api_app = FastAPI(
+            title="Knowwhere REST API",
+            description="Integrated Personal Knowledge Engine",
+            version="1.4.2-FINAL",
         )
 
-        # 3. Add Middleware (CORS)
+        # Add CORS to the REST app
         origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
         if settings.frontend_url:
             origins.extend([o.strip() for o in settings.frontend_url.split(",") if o.strip()])
         
-        combined_app.add_middleware(
+        api_app.add_middleware(
             CORSMiddleware,
             allow_origins=[o for o in origins if o],
             allow_origin_regex=r"https://know-where-mcp-server-.*\.vercel\.app",
@@ -1143,66 +1141,64 @@ def main():
             allow_headers=["*"],
         )
 
-        # 4. Add Authentication Middleware
-        @combined_app.middleware("http")
+        # Add REST-specific routes
+        api_app.include_router(api_router)
+
+        # 3. Mount REST API and add health checks to the root app
+        # Mount the versioned REST API at /api
+        server_app.mount("/api", api_app)
+
+        # Add a root health check for Railway/monitoring
+        @server_app.route("/health")
+        async def root_health(request: Request):
+            return JSONResponse({
+                "status": "healthy",
+                "service": "knowwhere",
+                "version": "1.4.2-FINAL",
+                "mcp": "/sse",
+                "rest": "/api"
+            })
+
+        # Add a special handler for POST /sse to prevent discovery noise
+        # 404/405 signals to the client to fall back to GET for SSE
+        @server_app.route("/sse", methods=["POST"])
+        async def sse_post_handler(request: Request):
+            return Response("SSE endpoint requires GET. Use /messages for POST.", status_code=405)
+
+        # 4. Integrate SHARED Authentication Middleware
+        # This runs on the root Starlette app and covers both MCP and REST
+        @server_app.middleware("http")
         async def shared_auth_middleware(request: Request, call_next):
             auth_header = request.headers.get("Authorization")
             api_key = request.headers.get("X-API-Key")
+            
             try:
+                # Inject user identity into context
                 await authenticate_request(bearer_token=auth_header, api_key=api_key)
             except Exception as e:
-                logger.debug("Optional auth failed", error=str(e))
+                # Optional auth: don't block
+                logger.debug("Optional server auth check complete", error=str(e))
                 
             return await call_next(request)
 
-        # 5. Add REST API Routes
-        combined_app.include_router(api_router)
-
-        @combined_app.get("/health")
-        async def health_check():
-            return {
-                "status": "healthy", 
-                "service": "knowwhere",
-                "version": combined_app.version,
-                "transport": "streamable-http",
-                "endpoint": "/sse"
-            }
-
-        # 6. Inject MCP Routes into FastAPI
-        # For transport="http", FastMCP creates a single route at the specified path
-        # that handles GET, POST, and DELETE for the Streamable HTTP protocol.
-        for route in mcp_app.routes:
-            if any(r.path == route.path for r in combined_app.router.routes):
-                continue
-            combined_app.router.routes.append(route)
-
-        # Global REST Exception Handler
-        @combined_app.exception_handler(Exception)
+        # Global Exception Handler for the entire server
+        @server_app.exception_handler(Exception)
         async def global_exception_handler(request: Request, exc: Exception):
             import traceback
             logger.error("SYSTEM ERROR", path=request.url.path, error=str(exc), trace=traceback.format_exc())
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "error": str(exc)})
 
         logger.info(
-            "Starting Streamable Knowwhere Server",
+            "Starting Stabilized Knowwhere Integrated Server",
             host=host,
             port=port,
-            version=combined_app.version,
+            version="1.4.2-FINAL",
             mcp_endpoint="/sse",
             rest_prefix="/api"
         )
         
-        uvicorn.run(combined_app, host=host, port=port)
-
-        logger.info(
-            "Starting Integrated Knowwhere Server",
-            host=host,
-            port=port,
-            version=combined_app.version,
-            endpoints=["/sse", "/messages", "/api", "/health"]
-        )
-        
-        uvicorn.run(combined_app, host=host, port=port)
+        # Run the root Starlette server
+        uvicorn.run(server_app, host=host, port=port)
     else:
         # Default stdio transport for CLI/direct integration
         mcp.run()
