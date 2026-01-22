@@ -4,7 +4,7 @@
 - [x] Task: Create Health Check Service Interface 9a2acf7
     - [ ] Subtask: Define abstract base class for health checks
     - [ ] Subtask: Create standard response models (Status, Latency, Message)
-- [ ] Task: Implement Database Health Check
+- [x] Task: Implement Database Health Check 8589359
     - [ ] Subtask: Write tests for DB connection failure/success
     - [ ] Subtask: Implement asyncpg connection check
 - [ ] Task: Implement Redis Health Check
