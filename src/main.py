@@ -1119,12 +1119,12 @@ def main():
         mcp_http_app = mcp.http_app()
         
 
-        # Use FastMCP's internal FastAPI app as the base
-        # This ensures /sse and /messages are registered correctly at the root
-        combined_app = mcp_http_app
-        combined_app.title = "Knowwhere Combined API"
-        combined_app.description = "Combined MCP + REST API Server"
-        combined_app.version = "1.3.1-STABILIZED"
+        # Create main FastAPI app
+        combined_app = FastAPI(
+            title="Knowwhere Combined API",
+            description="Combined MCP + REST API Server",
+            version="1.3.1-STABILIZED",
+        )
 
         # 1. Add Middleware (CORS)
         origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -1143,7 +1143,6 @@ def main():
         # 2. Add Authentication Middleware
         @combined_app.middleware("http")
         async def auth_context_middleware(request: Request, call_next):
-            # This sets AuthContext for both REST and MCP (via SSE/Messages)
             auth_header = request.headers.get("Authorization")
             api_key_header_val = request.headers.get("X-API-Key")
             
@@ -1166,29 +1165,34 @@ def main():
                 "status": "healthy", 
                 "service": "knowwhere-mcp",
                 "version": combined_app.version,
-                "mcp_enabled": True
+                "mcp": True
             }
 
-        # 4. Global Exception Handlers for Railway debugging
+        # 4. MCP Proxying (Crucial for connectivity)
+        # We proxy /sse and /messages directly to the internal FastMCP app
+        # This avoids path stripping issues of .mount("/")
+        @combined_app.api_route("/sse", methods=["GET", "POST"])
+        async def mcp_sse_proxy(request: Request):
+            return await mcp_http_app(request.scope, request.receive, request.send)
+
+        @combined_app.api_route("/messages", methods=["POST"])
+        async def mcp_messages_proxy(request: Request):
+            return await mcp_http_app(request.scope, request.receive, request.send)
+
+        # 5. Global Exception Handlers
         @combined_app.exception_handler(Exception)
         async def global_exception_handler(request: Request, exc: Exception):
             import traceback
             logger.error("SYSTEM ERROR", path=request.url.path, error=str(exc), trace=traceback.format_exc())
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "error": str(exc)})
 
-        @combined_app.exception_handler(404)
-        async def custom_404_handler(request: Request, exc):
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "detail": "Not Found", 
-                    "path": request.url.path,
-                    "tip": "Try /sse for MCP connection. FastMCP expects verbatim paths."
-                }
-            )
+        # Lifespan coordination
+        @combined_app.on_event("startup")
+        async def startup_event():
+            logger.info("Starting Knowwhere Unified Server...")
 
         logger.info(
-            "Starting unified Knowwhere Server",
+            "Starting unified Knowwhere Server (FastAPI Root)",
             host=host,
             port=port,
             endpoints=["/sse", "/messages", "/api", "/health"]
