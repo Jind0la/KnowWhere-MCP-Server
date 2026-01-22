@@ -1116,22 +1116,25 @@ def main():
         from starlette.middleware.base import BaseHTTPMiddleware
         from src.api.web import router as api_router
         
-        # Use transport="sse" to expose /sse and /messages directly
-        mcp_http_app = mcp.http_app(transport="sse")
+        # 1. Initialize FastMCP with SSE transport
+        # This gives us a Starlette app with its own lifespan and routes
+        mcp_app = mcp.http_app(transport="sse")
         
-        # 1. Create the REST API app (FastAPI)
-        api_app = FastAPI(
-            title="Knowwhere Combined API",
-            description="REST API + MCP Server",
-            version="1.3.4-STABILIZED",
+        # 2. Create the main FastAPI app and share the lifespan
+        # Sharing the lifespan is critical for FastMCP's internal task groups
+        combined_app = FastAPI(
+            title="Knowwhere Unified Server",
+            description="High-Performance MCP + REST API Server",
+            version="1.4.0-STABLE",
+            lifespan=mcp_app.router.lifespan_context
         )
 
-        # Add CORS to the REST app
+        # 3. Add Middleware (CORS)
         origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
         if settings.frontend_url:
             origins.extend([o.strip() for o in settings.frontend_url.split(",") if o.strip()])
         
-        api_app.add_middleware(
+        combined_app.add_middleware(
             CORSMiddleware,
             allow_origins=[o for o in origins if o],
             allow_origin_regex=r"https://know-where-mcp-server-.*\.vercel\.app",
@@ -1140,71 +1143,65 @@ def main():
             allow_headers=["*"],
         )
 
-        # Add REST-specific routes
-        api_app.include_router(api_router)
+        # 4. Add Authentication Middleware
+        @combined_app.middleware("http")
+        async def shared_auth_middleware(request: Request, call_next):
+            # This sets AuthContext for all routes (REST and integrated MCP)
+            auth_header = request.headers.get("Authorization")
+            api_key = request.headers.get("X-API-Key")
+            try:
+                await authenticate_request(bearer_token=auth_header, api_key=api_key)
+            except Exception as e:
+                logger.debug("Optional auth failed", error=str(e))
+                
+            return await call_next(request)
 
-        @api_app.get("/health")
+        # 5. Add REST API Routes
+        combined_app.include_router(api_router)
+
+        @combined_app.get("/health")
         async def health_check():
             return {
                 "status": "healthy", 
-                "service": "knowwhere-api",
-                "version": api_app.version,
-                "transport": "sse"
+                "service": "knowwhere",
+                "version": combined_app.version,
+                "components": ["mcp-sse", "rest-api"]
             }
 
+        # 6. Inject MCP Routes into FastAPI
+        # We manually add the routes from mcp_app to combined_app
+        # This makes them first-class citizens in the FastAPI app
+        for route in mcp_app.routes:
+            # Avoid duplicating any routes if they were somehow added
+            if any(r.path == route.path for r in combined_app.router.routes):
+                continue
+            combined_app.router.routes.append(route)
+
+        # 7. Add explicit POST handler for /sse (Support for proactive discovery)
+        # Some clients try to probe with POST
+        @combined_app.post("/sse")
+        async def sse_post_handler(request: Request):
+            # Resolve the original SSE GET endpoint from the injected routes
+            sse_route = next(r for r in mcp_app.routes if r.path == "/sse")
+            # We treat the POST as a probe or forward it to the endpoint
+            return await sse_route.endpoint(request)
+
         # Global REST Exception Handler
-        @api_app.exception_handler(Exception)
+        @combined_app.exception_handler(Exception)
         async def global_exception_handler(request: Request, exc: Exception):
             import traceback
-            logger.error("API ERROR", path=request.url.path, error=str(exc), trace=traceback.format_exc())
+            logger.error("SYSTEM ERROR", path=request.url.path, error=str(exc), trace=traceback.format_exc())
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "error": str(exc)})
 
-        # 2. Define the Unified ASGI App Dispatcher
-        async def unified_app(scope, receive, send):
-            # Lifecycle Management (Critical for FastMCP initialization)
-            if scope["type"] == "lifespan":
-                await mcp_http_app(scope, receive, send)
-                return
-
-            if scope["type"] == "http":
-                path = scope.get("path", "")
-                
-                # MCP Traffic
-                # FastMCP with transport="sse" expects exactly these paths
-                if path in ["/sse", "/sse/", "/messages", "/messages/"]:
-                    # Inject Authentication Context for MCP Tools
-                    headers = dict(scope.get("headers", []))
-                    auth_header = headers.get(b"authorization", b"").decode("utf-8") or None
-                    api_key_header = headers.get(b"x-api-key", b"").decode("utf-8") or None
-                    
-                    try:
-                        await authenticate_request(
-                            bearer_token=auth_header,
-                            api_key=api_key_header
-                        )
-                    except Exception as e:
-                        logger.debug("MCP Auth attempt failed", error=str(e))
-                    
-                    # Normalize path for internal routing (strip trailing slash)
-                    if path.endswith("/") and len(path) > 1:
-                        scope["path"] = path[:-1]
-                        
-                    await mcp_http_app(scope, receive, send)
-                    return
-
-            # All other traffic goes to FastAPI
-            await api_app(scope, receive, send)
-
         logger.info(
-            "Starting Unified Knowwhere Server",
+            "Starting Integrated Knowwhere Server",
             host=host,
             port=port,
-            mcp_endpoints=["/sse", "/messages"],
-            api_prefix="/api"
+            version=combined_app.version,
+            endpoints=["/sse", "/messages", "/api", "/health"]
         )
         
-        # Run the unified ASGI dispatcher
-        uvicorn.run(unified_app, host=host, port=port)
+        uvicorn.run(combined_app, host=host, port=port)
     else:
         # Default stdio transport for CLI/direct integration
         mcp.run()
