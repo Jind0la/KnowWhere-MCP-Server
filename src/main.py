@@ -1116,13 +1116,14 @@ def main():
         from starlette.middleware.base import BaseHTTPMiddleware
         from src.api.web import router as api_router
         
-        mcp_http_app = mcp.http_app(path="/")
+        # Use transport="sse" to expose /sse and /messages directly
+        mcp_http_app = mcp.http_app(transport="sse")
         
         # 1. Create the REST API app (FastAPI)
         api_app = FastAPI(
             title="Knowwhere Combined API",
             description="REST API + MCP Server",
-            version="1.3.3-STABILIZED",
+            version="1.3.4-STABILIZED",
         )
 
         # Add CORS to the REST app
@@ -1148,7 +1149,7 @@ def main():
                 "status": "healthy", 
                 "service": "knowwhere-api",
                 "version": api_app.version,
-                "mcp": "available via unified root"
+                "transport": "sse"
             }
 
         # Global REST Exception Handler
@@ -1168,7 +1169,8 @@ def main():
             if scope["type"] == "http":
                 path = scope.get("path", "")
                 
-                # MCP Traffic (/sse, /messages)
+                # MCP Traffic
+                # FastMCP with transport="sse" expects exactly these paths
                 if path in ["/sse", "/sse/", "/messages", "/messages/"]:
                     # Inject Authentication Context for MCP Tools
                     headers = dict(scope.get("headers", []))
@@ -1183,6 +1185,10 @@ def main():
                     except Exception as e:
                         logger.debug("MCP Auth attempt failed", error=str(e))
                     
+                    # Normalize path for internal routing (strip trailing slash)
+                    if path.endswith("/") and len(path) > 1:
+                        scope["path"] = path[:-1]
+                        
                     await mcp_http_app(scope, receive, send)
                     return
 
