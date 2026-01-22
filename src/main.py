@@ -14,6 +14,7 @@ from uuid import UUID
 
 import structlog
 import uvicorn
+from datetime import datetime, UTC
 from fastmcp import FastMCP
 
 from src.config import Settings, get_settings, init_container, close_container
@@ -510,7 +511,6 @@ async def mcp_consolidate_session(
         session_date: Datum (ISO 8601, z.B. "2024-01-15")
         conversation_id: Optionale Referenz-ID
     """
-    from datetime import datetime
     import asyncio
 
     user_id = get_user_id_from_context(metadata=_metadata)
@@ -1122,14 +1122,13 @@ def main():
         # Combine FastAPI lifespan with MCP lifespan
         @asynccontextmanager
         async def combined_lifespan(app: FastAPI):
-            # Run MCP lifespan
+            # FastMCP's lifespan already calls init_container()
+            # We just use its context to ensure all MCP internals (like long-running tasks) start correctly
             async with mcp_http_app.router.lifespan_context(app):
-                # Our custom initialization
-                logger.info("Starting Knowwhere Combined API...")
-                await init_container()
+                logger.info("Starting Knowwhere Combined API (Lifespan via FastMCP)...")
+                # init_container is handled by mcp's lifespan_context
                 yield
-                # Cleanup
-                await close_container()
+                # Cleanup is also handled by mcp's lifespan_context (which calls close_container)
                 logger.info("Combined API shutdown complete")
 
         # Create main FastAPI app
