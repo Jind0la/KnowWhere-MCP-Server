@@ -1161,6 +1161,13 @@ def main():
 
         # 2. Define the Unified ASGI App Dispatcher
         async def unified_app(scope, receive, send):
+            # Lifecycle Management (Critical for FastMCP initialization)
+            if scope["type"] == "lifespan":
+                # Both apps share the same container initialization via lifespan_context
+                # We forward the lifespan scope to mcp_http_app to ensure it starts correctly
+                await mcp_http_app(scope, receive, send)
+                return
+
             if scope["type"] == "http":
                 path = scope.get("path", "")
                 
@@ -1180,7 +1187,6 @@ def main():
                         logger.debug("MCP Auth attempt failed", error=str(e))
                     
                     # Normalize path for internal Starlette routing
-                    # We strip trailing slashes to match FastMCP's expectations
                     if path.endswith("/") and len(path) > 1:
                         scope["path"] = path[:-1]
                         
