@@ -1099,10 +1099,33 @@ def main():
         
         from fastapi import FastAPI, Request
         from fastapi.responses import JSONResponse
+        from starlette.middleware.base import BaseHTTPMiddleware
         from src.api.web import router as api_router
         
         mcp_http_app = mcp.http_app()
         
+        class AuthMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request: Request, call_next):
+                # Try to extract authentication from headers
+                auth_header = request.headers.get("Authorization")
+                api_key_header_val = request.headers.get("X-API-Key")
+                
+                user_id = await authenticate_request(
+                    bearer_token=auth_header,
+                    api_key=api_key_header_val
+                )
+                
+                if user_id:
+                    # Context is already set in AuthContext by authenticate_request
+                    logger.debug("Request authenticated", user_id=str(user_id), path=request.url.path)
+                
+                try:
+                    response = await call_next(request)
+                    return response
+                finally:
+                    # Clear context after request to prevent leakage
+                    AuthContext.clear()
+
         # Combine FastAPI lifespan with MCP lifespan
         @asynccontextmanager
         async def combined_lifespan(app: FastAPI):
@@ -1145,6 +1168,9 @@ def main():
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        
+        # Add AuthMiddleware to handle authentication for all routes
+        combined_app.add_middleware(AuthMiddleware)
         
         # Include the REST API router
         combined_app.include_router(api_router)

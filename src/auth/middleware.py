@@ -160,20 +160,23 @@ def require_tier(min_tier: str):
 require_auth = Depends(get_current_user)
 
 
+from contextvars import ContextVar
+
 class AuthContext:
     """
     Context manager for accessing auth info in MCP tools.
     
     Since MCP tools don't have FastAPI request context,
     this provides an alternative way to pass auth info.
+    Uses ContextVar for thread-safety and request isolation.
     """
     
-    _current_user: AuthUser | None = None
+    _current_user: ContextVar[Optional[AuthUser]] = ContextVar("_current_user", default=None)
     
     @classmethod
     def set_user(cls, user: AuthUser | None) -> None:
         """Set the current user context."""
-        cls._current_user = user
+        cls._current_user.set(user)
     
     @classmethod
     def set_user_from_token(cls, token_data) -> None:
@@ -181,49 +184,53 @@ class AuthContext:
         from src.auth.models import TokenData
         
         if token_data:
-            cls._current_user = AuthUser(
+            user = AuthUser(
                 id=UUID(token_data.sub),
                 email=token_data.email or "",
                 tier=token_data.tier or "free",
                 scopes=token_data.scopes,
                 auth_method="jwt",
             )
+            cls._current_user.set(user)
     
     @classmethod
     def set_user_from_api_key(cls, user_info: dict) -> None:
         """Set user context from API key validation result."""
         if user_info:
-            cls._current_user = AuthUser(
+            user = AuthUser(
                 id=user_info["user_id"],
                 email=user_info.get("email", ""),
                 tier=user_info.get("tier", "free"),
                 scopes=user_info.get("scopes", []),
                 auth_method="api_key",
             )
+            cls._current_user.set(user)
     
     @classmethod
     def get_user(cls) -> AuthUser | None:
         """Get the current user context."""
-        return cls._current_user
+        return cls._current_user.get()
     
     @classmethod
     def get_user_id(cls) -> UUID | None:
         """Get the current user ID."""
-        if cls._current_user:
-            return cls._current_user.id
+        user = cls._current_user.get()
+        if user:
+            return user.id
         return None
     
     @classmethod
     def require_user(cls) -> AuthUser:
         """Get current user or raise exception."""
-        if cls._current_user is None:
+        user = cls._current_user.get()
+        if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated",
             )
-        return cls._current_user
+        return user
     
     @classmethod
     def clear(cls) -> None:
         """Clear the user context."""
-        cls._current_user = None
+        cls._current_user.set(None)
