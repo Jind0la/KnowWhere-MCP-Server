@@ -1131,9 +1131,9 @@ def main():
                 try:
                     response = await call_next(request)
                     return response
-                finally:
-                    # Clear context after request to prevent leakage
-                    AuthContext.clear()
+                except Exception as e:
+                    logger.error("Error in AuthMiddleware", error=str(e))
+                     raise
 
         # Combine FastAPI lifespan with MCP lifespan
         @asynccontextmanager
