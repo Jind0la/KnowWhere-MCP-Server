@@ -142,8 +142,6 @@ class AuditLogger:
                 entry.get("accessed_file_ids"),
                 entry.get("user_agent"),
                 entry.get("ip_address"),
-                entry.get("ip_address"),
-                entry.get("ip_address"),
                 json.dumps(entry.get("metadata", {}), cls=AuditJSONEncoder, default=str),
             )
             
