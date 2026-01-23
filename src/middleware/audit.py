@@ -14,6 +14,19 @@ import structlog
 
 from src.storage.database import Database, get_database
 import json
+from uuid import UUID
+from enum import Enum
+
+class AuditJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder for audit logs."""
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, UUID):
+            return str(obj)
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, Enum):
+            return obj.value
+        return super().default(obj)
 
 logger = structlog.get_logger(__name__)
 
@@ -121,7 +134,8 @@ class AuditLogger:
                 entry.get("accessed_file_ids"),
                 entry.get("user_agent"),
                 entry.get("ip_address"),
-                json.dumps(entry.get("metadata", {})),
+                entry.get("ip_address"),
+                json.dumps(entry.get("metadata", {}), cls=AuditJSONEncoder),
             )
             
         except Exception as e:
