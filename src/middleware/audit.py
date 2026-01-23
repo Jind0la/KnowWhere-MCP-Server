@@ -13,6 +13,7 @@ from uuid import UUID
 import structlog
 
 from src.storage.database import Database, get_database
+import json
 
 logger = structlog.get_logger(__name__)
 
@@ -120,7 +121,7 @@ class AuditLogger:
                 entry.get("accessed_file_ids"),
                 entry.get("user_agent"),
                 entry.get("ip_address"),
-                entry.get("metadata", {}),
+                json.dumps(entry.get("metadata", {})),
             )
             
         except Exception as e:

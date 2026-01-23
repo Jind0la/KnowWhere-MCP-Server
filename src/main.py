@@ -23,6 +23,11 @@ from src.auth.jwt import verify_token
 from src.auth.api_keys import verify_api_key
 from src.middleware.rate_limit import check_rate_limit, get_rate_limiter
 from src.middleware.audit import AuditContext, close_audit_logger, get_audit_logger
+from fastapi import FastAPI, Depends, Request, Response
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response, JSONResponse
 from src.tools.remember import remember, REMEMBER_SPEC
 from src.tools.recall import recall, RECALL_SPEC
 from src.tools.consolidate import consolidate_session, CONSOLIDATE_SESSION_SPEC
@@ -1156,19 +1161,42 @@ def main():
 
         # 4. Integrate SHARED Authentication Middleware
         # This runs on the root Starlette app and covers both MCP and REST
-        @server_app.middleware("http")
-        async def shared_auth_middleware(request: Request, call_next):
-            auth_header = request.headers.get("Authorization")
-            api_key = request.headers.get("X-API-Key")
-            
-            try:
-                # Inject user identity into context
-                await authenticate_request(bearer_token=auth_header, api_key=api_key)
-            except Exception as e:
-                # Optional auth: don't block
-                logger.debug("Optional server auth check complete", error=str(e))
+        # 4. Integrate SHARED Authentication Middleware - Pure ASGI Implementation
+        # We replace BaseHTTPMiddleware with a raw ASGI middleware to respect SSE transport
+        class ASGIPassThroughAuthMiddleware:
+            def __init__(self, app):
+                self.app = app
+
+            async def __call__(self, scope, receive, send):
+                if scope["type"] not in ("http", "websocket"):
+                    await self.app(scope, receive, send)
+                    return
+
+                # Extract headers manually from ASGI scope
+                headers = dict(scope.get("headers", []))
+                auth_header = headers.get(b"authorization", b"").decode("utf-8")
+                api_key = headers.get(b"x-api-key", b"").decode("utf-8")
+
+                # Parse Bearer token
+                bearer_token = None
+                if auth_header.startswith("Bearer "):
+                    bearer_token = auth_header[7:]
+
+                try:
+                    # Inject user identity into context (non-blocking)
+                    # We reuse the existing authenticate_request logic but adapted for manual extraction
+                    if bearer_token or api_key:
+                        await authenticate_request(bearer_token=bearer_token, api_key=api_key)
+                except Exception as e:
+                    # Optional auth: don't block, just log
+                    # Use print for now to avoid async logger issues in high-throughput loop if needed
+                    # or just rely on the fact that logger is configured
+                    pass
                 
-            return await call_next(request)
+                # Delegate strictly to app - NO response interception
+                await self.app(scope, receive, send)
+
+        server_app.add_middleware(ASGIPassThroughAuthMiddleware)
 
         # Global Exception Handler for the entire server
         @server_app.exception_handler(Exception)

@@ -93,18 +93,34 @@ async def refine_knowledge(
     )
     await memory_repo.update(old_memory.id, user_id, update_data)
 
-    # 4. Create EVOLVES_INTO edge
-    edge_create = EdgeCreate(
-        user_id=user_id,
-        from_node_id=old_memory.id,
-        to_node_id=new_memory.id,
-        edge_type=EdgeType.EVOLVES_INTO,
-        strength=1.0,
-        confidence=1.0,
-        reason=reason or "Knowledge refinement/correction",
-        metadata={"auto_generated": True, "type": "refinement"}
-    )
-    await edge_repo.create(edge_create)
+    # 4. Create EVOLVES_INTO edge in graph
+    
+    # Check for existing edge to avoid crash or use try/except
+    # UPSERT pattern or graceful ignore
+    try:
+        edge_create = EdgeCreate(
+            user_id=user_id,
+            from_node_id=old_memory.id,
+            to_node_id=new_memory.id,
+            edge_type=EdgeType.EVOLVES_INTO,
+            strength=1.0,
+            confidence=1.0,
+            reason=reason or "Knowledge refinement/correction",
+            metadata={"auto_generated": True, "type": "refinement"}
+        )
+        await edge_repo.create(edge_create)
+    except Exception as e:
+        # Check if it is a unique violation
+        error_str = str(e)
+        if "duplicate key value" in error_str or "UniqueViolationError" in error_str:
+            logger.warning(
+                "Evolution edge already exists, skipping creation",
+                from_id=str(old_memory.id),
+                to_id=str(new_memory.id)
+            )
+        else:
+            # Re-raise strictly if it's not the expected error
+            raise e
 
     logger.info(
         "Refinement complete",
