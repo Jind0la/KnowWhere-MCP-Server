@@ -10,7 +10,8 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from typing import Any
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
 
 import structlog
 import uvicorn
@@ -1172,6 +1173,14 @@ def main():
                     await self.app(scope, receive, send)
                     return
 
+                # Log request for debugging
+                path = scope.get("path", "")
+                method = scope.get("method", "")
+                query = scope.get("query_string", b"").decode("utf-8")
+                
+                request_id = str(uuid4())[:8]
+                logger.debug(f"[{request_id}] ASGI Request: {method} {path}?{query}")
+
                 # Extract headers manually from ASGI scope
                 headers = dict(scope.get("headers", []))
                 auth_header = headers.get(b"authorization", b"").decode("utf-8")
@@ -1186,15 +1195,16 @@ def main():
                     # Inject user identity into context (non-blocking)
                     # We reuse the existing authenticate_request logic but adapted for manual extraction
                     if bearer_token or api_key:
+                        logger.debug(f"[{request_id}] Authenticating request...")
                         await authenticate_request(bearer_token=bearer_token, api_key=api_key)
+                        logger.debug(f"[{request_id}] Authentication successful")
                 except Exception as e:
-                    # Optional auth: don't block, just log
-                    # Use print for now to avoid async logger issues in high-throughput loop if needed
-                    # or just rely on the fact that logger is configured
+                    logger.error(f"[{request_id}] Auth failed", error=str(e))
                     pass
                 
                 # Delegate strictly to app - NO response interception
                 await self.app(scope, receive, send)
+                logger.debug(f"[{request_id}] Request completed")
 
         server_app.add_middleware(ASGIPassThroughAuthMiddleware)
 

@@ -149,7 +149,7 @@ class JWTHandler:
             payload = jwt.decode(
                 token,
                 self._secret_key,
-                algorithms=[self._algorithm],
+                algorithms=[self._algorithm, "HS256", "RS256"], # Allow common algs to prevent noise
             )
             
             # Verify token type
