@@ -20,13 +20,21 @@ from enum import Enum
 class AuditJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for audit logs."""
     def default(self, obj: Any) -> Any:
-        if isinstance(obj, UUID):
+        try:
+            if isinstance(obj, UUID):
+                return str(obj)
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            if isinstance(obj, Enum):
+                return obj.value
+            if hasattr(obj, "model_dump"):
+                return obj.model_dump()
+            if hasattr(obj, "__dict__"):
+                return str(obj)
+            return super().default(obj)
+        except Exception:
+            # Fallback for anything else to prevent audit crash
             return str(obj)
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, Enum):
-            return obj.value
-        return super().default(obj)
 
 logger = structlog.get_logger(__name__)
 
@@ -135,7 +143,8 @@ class AuditLogger:
                 entry.get("user_agent"),
                 entry.get("ip_address"),
                 entry.get("ip_address"),
-                json.dumps(entry.get("metadata", {}), cls=AuditJSONEncoder),
+                entry.get("ip_address"),
+                json.dumps(entry.get("metadata", {}), cls=AuditJSONEncoder, default=str),
             )
             
         except Exception as e:

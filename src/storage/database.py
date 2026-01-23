@@ -245,8 +245,9 @@ class Database:
             return False
 
 
-# Global database instance
+# Global database instance and lock
 _database: Database | None = None
+_db_lock = asyncio.Lock()
 
 
 async def get_database() -> Database:
@@ -254,12 +255,16 @@ async def get_database() -> Database:
     Get the global database instance.
     
     Creates and connects if not already done.
+    Thread-safe (async-safe) singleton.
     """
     global _database
     
     if _database is None:
-        _database = Database()
-        await _database.connect()
+        async with _db_lock:
+            # Double-check locking pattern
+            if _database is None:
+                _database = Database()
+                await _database.connect()
     
     return _database
 
