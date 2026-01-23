@@ -20,6 +20,8 @@ async def update_memory(
     status: str | None = None,
     importance: int | None = None,
     memory_type: str | None = None,
+    content: str | None = None,
+    entities: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Updates specific fields of an existing memory.
@@ -30,6 +32,8 @@ async def update_memory(
         status: New status (active, stale, irrelevant)
         importance: New importance score (1-10)
         memory_type: New memory type (semantic, preference, etc.)
+        content: Updated content text (will trigger re-embedding)
+        entities: Updated list of entities
         
     Returns:
         Dict with status and updated_memory_id
@@ -57,6 +61,11 @@ async def update_memory(
         update_data.importance = importance
     if memory_type:
         update_data.memory_type = MemoryType(memory_type)
+    if content:
+        update_data.content = content
+        # Note: Repository should handle re-embedding if content changes
+    if entities is not None:
+        update_data.entities = entities
 
     updated = await repo.update(mem_id, user_id, update_data)
     
@@ -102,6 +111,15 @@ UPDATE_MEMORY_SPEC = {
                 "type": "string",
                 "enum": ["semantic", "preference", "procedural", "episodic", "meta"],
                 "description": "Update the classification of the memory",
+            },
+            "content": {
+                "type": "string",
+                "description": "Update the text content of the memory. NOTE: For significant changes that represent 'learning', prefer using refine_knowledge to preserve history. Use this for corrections.",
+            },
+            "entities": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Update the list of extracted entities",
             }
         },
         "required": ["memory_id"],

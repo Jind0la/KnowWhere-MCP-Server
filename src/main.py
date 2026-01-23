@@ -683,6 +683,8 @@ async def mcp_update_memory(
     status: str | None = None,
     importance: int | None = None,
     memory_type: str | None = None,
+    content: str | None = None,
+    entities: list[str] | None = None,
 ) -> dict[str, Any]:
     """Updates specific fields of an existing memory."""
     user_id = get_user_id_from_context()
@@ -693,7 +695,9 @@ async def mcp_update_memory(
         memory_id=memory_id,
         status=status,
         importance=importance,
-        memory_type=memory_type
+        memory_type=memory_type,
+        content=content,
+        entities=entities,
     )
 
 
