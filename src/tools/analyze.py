@@ -88,13 +88,33 @@ async def analyze_evolution(
         time_window=window.value,
     )
     
-    # Convert to EvolutionEvent objects
+    # Convert to EvolutionEvent objects and limit size
     timeline: list[EvolutionEvent] = []
+    
+    # Sort by date just in case (usually sorted by DB)
+    timeline_data.sort(key=lambda x: x["date"])
+    
+    # SAFETY: Truncate to max 50 events to prevent client timeout/crash on large histories
+    MAX_EVENTS = 50
+    if len(timeline_data) > MAX_EVENTS:
+        logger.warning(
+            "Timeline truncated", 
+            original_count=len(timeline_data), 
+            limit=MAX_EVENTS
+        )
+        # Keep the most recent ones
+        timeline_data = timeline_data[-MAX_EVENTS:]
+
     for event in timeline_data:
+        # Truncate content summary if too long
+        summary = event["content_summary"] or ""
+        if len(summary) > 200:
+            summary = summary[:197] + "..."
+            
         timeline.append(EvolutionEvent(
             date=datetime.fromisoformat(event["date"]),
             memory_id=UUID(event["memory_id"]),
-            content_summary=event["content_summary"],
+            content_summary=summary,
             change_type=event["change_type"],
         ))
     
