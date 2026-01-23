@@ -211,43 +211,34 @@ async def authenticate_from_env_api_key() -> UUID | None:
     return None
 
 
-def get_user_id_from_context(
-    context: dict | None = None,
-    metadata: dict | None = None,
-) -> UUID:
+def get_user_id_from_context() -> UUID:
     """
-    Extract user_id from MCP context or metadata.
+    Extract user_id from the globally managed AuthContext.
     
     Priority:
     1. Environment API key (KNOWWHERE_API_KEY)
-    2. AuthContext (set by authenticated request)
-    3. Metadata user_id
-    4. Context user_id
-    5. Default (development only)
+    2. AuthContext (set by authenticated request middleware)
+    3. Default (development only fallback)
     """
     global _env_authenticated_user_id
     
-    # Check if we authenticated via env API key
+    # 1. Check if we authenticated via env API key (highest priority for CLI)
     if _env_authenticated_user_id:
         return _env_authenticated_user_id
     
-    # Check AuthContext (set by auth middleware)
+    # 2. Check AuthContext (set by the shared HTTP middleware)
+    # This is the standard path for both REST and integrated MCP requests
     auth_user_id = AuthContext.get_user_id()
     if auth_user_id:
         return auth_user_id
     
-    # Check metadata
-    if metadata and "user_id" in metadata:
-        return UUID(metadata["user_id"])
-    
-    # Check context
-    if context and "user_id" in context:
-        return UUID(context["user_id"])
-    
-    # Fall back to default (development only)
+    # 3. Fall back to default (development only)
     if not REQUIRE_AUTH:
-        logger.warning("Using default user_id - NOT FOR PRODUCTION")
+        logger.warning("No authenticated user found - using default user_id (DEV ONLY)")
         return DEFAULT_USER_ID
+        
+    # If we get here in production without auth, something is wrong
+    raise ValueError("Authentication required: No user session found in context.")
     
     raise ValueError("Authentication required: no user_id found in context")
 
@@ -327,7 +318,6 @@ async def mcp_remember(
     memory_type: str,
     entities: list[str] | None = None,
     importance: int = 5,
-    _metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     💾 SPEICHERE wichtige Informationen über den User für zukünftige Gespräche.
@@ -371,7 +361,7 @@ async def mcp_remember(
         entities: Relevante Begriffe ["Lasagne", "Sarah"] - auto-extrahiert wenn leer
         importance: 1-10 (10=Name, 8=Rezept/Anleitung, 5=normal)
     """
-    user_id = get_user_id_from_context(metadata=_metadata)
+    user_id = get_user_id_from_context()
     
     return await with_auth_and_audit(
         tool_name="remember",
@@ -381,7 +371,6 @@ async def mcp_remember(
         memory_type=memory_type,
         entities=entities,
         importance=importance,
-        metadata=_metadata,
     )
 
 
@@ -393,7 +382,6 @@ async def mcp_recall(
     offset: int = 0,
     relevance_threshold: float = 0.0,
     include_sampling: bool = False,
-    _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     🔍 **IMMER ZUERST NUTZEN** bei persönlichen Fragen über den User!
@@ -430,7 +418,7 @@ async def mcp_recall(
         filters: Optional {"memory_type": "preference", "importance_min": 7}
         limit: Max Ergebnisse 1-10 (default 5, mehr = mehr Kontext)
     """
-    user_id = get_user_id_from_context(metadata=_metadata)
+    user_id = get_user_id_from_context()
     
     # Limit results to prevent context overflow
     limit = min(limit, 10)
@@ -484,7 +472,6 @@ async def mcp_consolidate_session(
     session_transcript: str,
     session_date: str | None = None,
     conversation_id: str | None = None,
-    _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     📋 Analysiere ein ganzes Gespräch und extrahiere automatisch alle wichtigen Memories.
@@ -513,7 +500,7 @@ async def mcp_consolidate_session(
     """
     import asyncio
 
-    user_id = get_user_id_from_context(metadata=_metadata)
+    user_id = get_user_id_from_context()
 
     # Parse session_date if provided
     parsed_date = None
@@ -568,7 +555,6 @@ async def mcp_analyze_evolution(
     entity_id: str | None = None,
     entity_name: str | None = None,
     time_window: str = "all_time",
-    _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     📈 Verfolge wie sich ein Thema/Preference über Zeit entwickelt hat.
@@ -591,7 +577,7 @@ async def mcp_analyze_evolution(
         entity_name: Thema/Begriff zu tracken z.B. "TypeScript", "React", "Machine Learning"
         time_window: last_7_days | last_30_days | last_year | all_time (default)
     """
-    user_id = get_user_id_from_context(metadata=_metadata)
+    user_id = get_user_id_from_context()
     
     parsed_entity_id = None
     if entity_id:
@@ -615,7 +601,6 @@ async def mcp_export_memories(
     format: str = "json",
     filters: dict | None = None,
     include_embeddings: bool = False,
-    _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     📤 Exportiere alle Memories als Backup oder zur Analyse.
@@ -638,7 +623,7 @@ async def mcp_export_memories(
         filters: Optional {"memory_type": "preference"} für nur Preferences
         include_embeddings: Embedding-Vektoren inkludieren (default: False)
     """
-    user_id = get_user_id_from_context(metadata=_metadata)
+    user_id = get_user_id_from_context()
     
     return await with_auth_and_audit(
         tool_name="export_memories",
@@ -654,7 +639,6 @@ async def mcp_export_memories(
 async def mcp_delete_memory(
     memory_id: str,
     hard_delete: bool = False,
-    _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     🗑️ Lösche eine spezifische Memory.
@@ -677,7 +661,7 @@ async def mcp_delete_memory(
         memory_id: UUID der Memory (aus recall()-Ergebnis)
         hard_delete: True = permanent, False = soft-delete (default)
     """
-    user_id = get_user_id_from_context(metadata=_metadata)
+    user_id = get_user_id_from_context()
     return await with_auth_and_audit(
         tool_name="delete_memory",
         user_id=user_id,
@@ -693,10 +677,9 @@ async def mcp_update_memory(
     status: str | None = None,
     importance: int | None = None,
     memory_type: str | None = None,
-    _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """Updates specific fields of an existing memory."""
-    user_id = get_user_id_from_context(metadata=_metadata)
+    user_id = get_user_id_from_context()
     return await with_auth_and_audit(
         tool_name="update_memory",
         user_id=user_id,
@@ -713,7 +696,6 @@ async def mcp_refine_knowledge(
     memory_id: str,
     new_content: str,
     reason: str | None = None,
-    _metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     - Die alte Memory wird als "superseded" archiviert
@@ -724,7 +706,7 @@ async def mcp_refine_knowledge(
         new_content: Der korrigierte oder erweiterte Inhalt
         reason: Optionaler Grund für die Korrektur (z.B. 'User Korrektur')
     """
-    user_id = get_user_id_from_context(metadata=_metadata)
+    user_id = get_user_id_from_context()
     
     return await with_auth_and_audit(
         tool_name="refine_knowledge",
@@ -1124,7 +1106,7 @@ def main():
         api_app = FastAPI(
             title="Knowwhere REST API",
             description="Integrated Personal Knowledge Engine",
-            version="1.4.4-STABLE",
+            version="1.4.5-STABLE",
         )
 
         # Add CORS to the REST app
@@ -1158,7 +1140,7 @@ def main():
             return JSONResponse({
                 "status": "healthy",
                 "service": "knowwhere",
-                "version": "1.4.4-STABLE",
+                "version": "1.4.5-STABLE",
                 "mcp": "/sse",
                 "rest": "/api"
             })
@@ -1199,7 +1181,7 @@ def main():
             "Starting Stabilized Knowwhere Integrated Server",
             host=host,
             port=port,
-            version="1.4.3-STABLE",
+            version="1.4.5-STABLE",
             mcp_endpoint="/sse",
             rest_prefix="/api"
         )
